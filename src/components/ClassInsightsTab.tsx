@@ -1,0 +1,421 @@
+import React, { useState } from 'react';
+import { ExamItem } from '../types';
+import {
+  bandColors,
+  bandForMark,
+  bandLabels,
+  computeInsights,
+} from '../utils/stats';
+import {
+  DistributionChart,
+  OverviewChart,
+  DetailChart,
+} from './ChartComponents';
+import { ChevronRight } from 'lucide-react';
+
+interface ClassInsightsTabProps {
+  exam: ExamItem;
+  onGoToEnterMarks: () => void;
+}
+
+export const ClassInsightsTab: React.FC<ClassInsightsTabProps> = ({
+  exam,
+  onGoToEnterMarks,
+}) => {
+  const insights = computeInsights(exam);
+  const subjects = exam.subjects || [];
+
+  const [selectedSubjectId, setSelectedSubjectId] = useState<string>(
+    subjects.length > 0 ? subjects[0].id : ''
+  );
+  const [isGridOpen, setIsGridOpen] = useState(false);
+
+  if (!insights || insights.validStudents.length === 0) {
+    return (
+      <div className="bg-white border border-[#DCE2DE] rounded-[10px] p-12 text-center my-4 shadow-xs">
+        <h3 className="font-serif-title text-[20px] font-semibold text-[#16232E] mb-2">
+          No marks entered yet
+        </h3>
+        <p className="text-[13px] text-[#5B6B78] mb-4 max-w-md mx-auto">
+          Switch to &ldquo;Enter Marks&rdquo; and fill in scores for this exam to see insights here.
+        </p>
+        <button
+          onClick={onGoToEnterMarks}
+          className="font-sans-body font-semibold text-[13px] px-4 py-2 rounded-lg bg-[#16232E] text-white hover:bg-[#0d1720] cursor-pointer transition-all shadow-xs"
+        >
+          Go to Enter Marks
+        </button>
+      </div>
+    );
+  }
+
+  const {
+    validStudents,
+    overallPassCount,
+    passPct,
+    weakest,
+    strongest,
+    subjStats,
+    distCounts,
+    attention,
+    attendance,
+  } = insights;
+
+  const currentSelectedSub =
+    subjects.find((s) => s.id === selectedSubjectId) || subjects[0];
+
+  return (
+    <div className="flex flex-col gap-5 animate-fade">
+      {/* 5 Headline Cards */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-[1px] bg-[#DCE2DE] border border-[#DCE2DE] rounded-[10px] overflow-hidden shadow-xs">
+        {/* Weakest Subject */}
+        <div className="bg-white p-4 flex flex-col justify-between gap-1">
+          <span className="font-mono-tag text-[10px] uppercase tracking-wider text-[#5B6B78]">
+            Needs the most support
+          </span>
+          <div className="font-serif-title font-semibold text-[22px] text-[#B24A2C] leading-tight line-clamp-1">
+            {weakest.sub.name}
+          </div>
+          <div className="text-[12px] text-[#5B6B78] leading-relaxed">
+            Averaging {weakest.avgPct.toFixed(0)}% — the lowest in the class right now.
+          </div>
+        </div>
+
+        {/* Strongest Subject */}
+        <div className="bg-white p-4 flex flex-col justify-between gap-1">
+          <span className="font-mono-tag text-[10px] uppercase tracking-wider text-[#5B6B78]">
+            Doing well
+          </span>
+          <div className="font-serif-title font-semibold text-[22px] text-[#3F7A5C] leading-tight line-clamp-1">
+            {strongest.sub.name}
+          </div>
+          <div className="text-[12px] text-[#5B6B78] leading-relaxed">
+            Averaging {strongest.avgPct.toFixed(0)}% — the strongest subject this exam.
+          </div>
+        </div>
+
+        {/* Pass Rate */}
+        <div className="bg-white p-4 flex flex-col justify-between gap-1">
+          <span className="font-mono-tag text-[10px] uppercase tracking-wider text-[#5B6B78]">
+            Pass rate
+          </span>
+          <div
+            className={`font-serif-title font-semibold text-[22px] leading-tight ${
+              passPct < 70 ? 'text-[#B24A2C]' : 'text-[#16232E]'
+            }`}
+          >
+            {overallPassCount} / {validStudents.length}
+          </div>
+          <div className="text-[12px] text-[#5B6B78] leading-relaxed">
+            {passPct.toFixed(0)}% of students passed every subject.
+          </div>
+        </div>
+
+        {/* Needs Attention */}
+        <div className="bg-white p-4 flex flex-col justify-between gap-1">
+          <span className="font-mono-tag text-[10px] uppercase tracking-wider text-[#5B6B78]">
+            Needs attention
+          </span>
+          <div
+            className={`font-serif-title font-semibold text-[22px] leading-tight ${
+              attention.length > 0 ? 'text-[#B24A2C]' : 'text-[#3F7A5C]'
+            }`}
+          >
+            {attention.length}
+          </div>
+          <div className="text-[12px] text-[#5B6B78] leading-relaxed">
+            {attention.length === 0
+              ? 'No students below passing right now.'
+              : `${attention.length} student${attention.length !== 1 ? 's' : ''} below passing in at least one subject.`}
+          </div>
+        </div>
+
+        {/* Class Attendance */}
+        <div className="bg-white p-4 flex flex-col justify-between gap-1">
+          <span className="font-mono-tag text-[10px] uppercase tracking-wider text-[#5B6B78]">
+            Class attendance
+          </span>
+          <div
+            className={`font-serif-title font-semibold text-[22px] leading-tight ${
+              attendance === null
+                ? 'text-[#16232E]'
+                : attendance < 75
+                ? 'text-[#B24A2C]'
+                : 'text-[#3F7A5C]'
+            }`}
+          >
+            {attendance === null ? '—' : `${attendance}%`}
+          </div>
+          <div className="text-[12px] text-[#5B6B78] leading-relaxed">
+            {attendance === null
+              ? 'Not entered for this exam yet.'
+              : 'Average attendance for this exam period.'}
+          </div>
+        </div>
+      </div>
+
+      {/* Whole class performance chart */}
+      <div className="bg-white border border-[#DCE2DE] rounded-[10px] p-[18px] sm:p-5 shadow-xs">
+        <h3 className="font-serif-title text-[16px] font-semibold text-[#16232E] m-0 mb-1">
+          How the whole class performed
+        </h3>
+        <p className="text-[12px] text-[#5B6B78] m-0 mb-3.5">
+          Every student&apos;s overall score, grouped into simple performance bands.
+        </p>
+        <div className="h-[240px] w-full relative">
+          <DistributionChart distCounts={distCounts} />
+        </div>
+      </div>
+
+      {/* 2-column grid */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        {/* Subjects at a glance */}
+        <div className="bg-white border border-[#DCE2DE] rounded-[10px] p-[18px] sm:p-5 shadow-xs flex flex-col">
+          <h3 className="font-serif-title text-[16px] font-semibold text-[#16232E] m-0 mb-1">
+            Subjects at a glance
+          </h3>
+          <p className="text-[12px] text-[#5B6B78] m-0 mb-3.5">
+            Share of students on track (60%+) vs. needing support, per subject.
+          </p>
+          <div className="h-[220px] w-full relative">
+            <OverviewChart subjStats={subjStats} />
+          </div>
+        </div>
+
+        {/* Full breakdown for one subject */}
+        <div className="bg-white border border-[#DCE2DE] rounded-[10px] p-[18px] sm:p-5 shadow-xs flex flex-col">
+          <div className="flex items-center justify-between gap-2 flex-wrap mb-1">
+            <h3 className="font-serif-title text-[16px] font-semibold text-[#16232E] m-0">
+              Full breakdown for one subject
+            </h3>
+            <select
+              value={currentSelectedSub?.id || ''}
+              onChange={(e) => setSelectedSubjectId(e.target.value)}
+              className="font-sans-body font-semibold text-[13px] py-1.5 px-3 rounded-lg border-[1.5px] border-[#C3CCC7] bg-white text-[#16232E] cursor-pointer focus:outline-none focus:border-[#B9852A]"
+            >
+              {subjects.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.name}
+                </option>
+              ))}
+            </select>
+          </div>
+          <p className="text-[12px] text-[#5B6B78] m-0 mb-2.5">
+            Pick a subject to see its complete performance split.
+          </p>
+          <div className="h-[210px] w-full relative">
+            {currentSelectedSub && (
+              <DetailChart
+                validStudents={validStudents}
+                selectedSubject={currentSelectedSub}
+              />
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* Needs Attention Card */}
+      <div className="bg-white border border-[#DCE2DE] rounded-[10px] p-[18px] sm:p-5 shadow-xs">
+        <h3 className="font-serif-title text-[16px] font-semibold text-[#16232E] m-0 mb-1">
+          Needs attention
+        </h3>
+        <p className="text-[12px] text-[#5B6B78] m-0 mb-3">
+          Students below passing mark or absent in evaluated subjects.
+        </p>
+
+        {attention.length === 0 ? (
+          <div className="text-[13px] text-[#3F7A5C] py-2 font-medium">
+            Nobody is below passing or absent in any subject. 🎉
+          </div>
+        ) : (
+          <div className="divide-y divide-[#DCE2DE]">
+            {attention.map((a) => (
+              <div
+                key={a.st.id}
+                className="flex items-center justify-between py-2.5 text-[13px] gap-2 flex-wrap"
+              >
+                <span className="font-semibold text-[#1C2B39] flex items-center">
+                  <span className="font-mono-tag text-[#93A0AA] text-[11px] mr-2">
+                    {String(a.st.roll).padStart(2, '0')}
+                  </span>
+                  {a.st.name}
+                </span>
+                <div className="flex gap-1.5 flex-wrap items-center">
+                  {a.issues.map((issue) => {
+                    const rawVal = a.st.marks[issue.subject.id];
+                    if (issue.reason === 'absent') {
+                      return (
+                        <span
+                          key={issue.subject.id}
+                          className="font-mono-tag text-[11px] font-semibold px-2 py-0.5 rounded bg-[#FBEED3] text-[#B9852A] border border-[#E2A93B]"
+                        >
+                          {issue.subject.name} (Absent)
+                        </span>
+                      );
+                    }
+                    return (
+                      <span
+                        key={issue.subject.id}
+                        className="font-mono-tag text-[11px] font-semibold px-2 py-0.5 rounded bg-[#F7E4DC] text-[#B24A2C] border border-[#B24A2C]"
+                      >
+                        {issue.subject.name} ({rawVal}/{issue.subject.max})
+                      </span>
+                    );
+                  })}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Collapsible Full Class Grid (Heatmap) */}
+      <div className="bg-white border border-[#DCE2DE] rounded-[10px] p-[18px] sm:p-5 shadow-xs">
+        <div
+          onClick={() => setIsGridOpen(!isGridOpen)}
+          className="flex items-center justify-between cursor-pointer select-none"
+        >
+          <h3 className="font-serif-title text-[16px] font-semibold text-[#16232E] m-0">
+            View full class grid
+          </h3>
+          <ChevronRight
+            className={`w-4 h-4 text-[#5B6B78] transition-transform duration-200 ${
+              isGridOpen ? 'rotate-90' : ''
+            }`}
+          />
+        </div>
+        <p className="text-[12px] text-[#5B6B78] mt-1 mb-0">
+          Every student, every subject, colour-coded by band with AB and NA indicators.
+        </p>
+
+        {isGridOpen && (
+          <div className="mt-4 pt-3 border-t border-[#F4F6F3] animate-fade">
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[560px] border-collapse text-center">
+                <thead>
+                  <tr className="border-b-2 border-[#16232E]">
+                    <th className="font-mono-tag text-[10.5px] uppercase text-[#5B6B78] py-2 px-1.5 text-left pl-1">
+                      Student
+                    </th>
+                    {subjects.map((s) => (
+                      <th
+                        key={s.id}
+                        className="font-mono-tag text-[10.5px] uppercase text-[#5B6B78] py-2 px-1.5"
+                      >
+                        {s.name}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {validStudents.map((st) => (
+                    <tr key={st.id} className="border-b border-[#DCE2DE]">
+                      <td className="text-left text-[12.5px] font-medium text-[#1C2B39] whitespace-nowrap py-1.5 px-1.5 pl-1">
+                        <span className="font-mono-tag text-[#93A0AA] text-[10.5px] mr-1.5">
+                          {String(st.roll).padStart(2, '0')}
+                        </span>
+                        {st.name}
+                      </td>
+                      {subjects.map((sub) => {
+                        const v = st.marks[sub.id];
+                        if (v === '' || v === undefined || v === null) {
+                          return (
+                            <td key={sub.id} className="py-1 px-1.5 text-[#93A0AA] font-mono-tag text-xs">
+                              —
+                            </td>
+                          );
+                        }
+
+                        const sStr = String(v).trim().toUpperCase();
+                        if (sStr === 'AB' || sStr === 'ABSENT' || sStr === 'A') {
+                          return (
+                            <td key={sub.id} className="py-1 px-1.5">
+                              <span
+                                className="inline-flex items-center justify-center w-[40px] h-[26px] rounded-[6px] font-mono-tag text-[11px] font-bold text-[#B9852A] bg-[#FBEED3] border border-[#E2A93B] shadow-xs"
+                                title="Absent"
+                              >
+                                AB
+                              </span>
+                            </td>
+                          );
+                        }
+
+                        if (sStr === 'NA' || sStr === 'N/A' || sStr === '-') {
+                          return (
+                            <td key={sub.id} className="py-1 px-1.5">
+                              <span
+                                className="inline-flex items-center justify-center w-[40px] h-[26px] rounded-[6px] font-mono-tag text-[11px] font-bold text-[#5B6B78] bg-[#EEF0EE] border border-[#DCE2DE] shadow-xs"
+                                title="Not applicable / Optional"
+                              >
+                                NA
+                              </span>
+                            </td>
+                          );
+                        }
+
+                        const num = Number(v);
+                        if (isNaN(num)) {
+                          return (
+                            <td key={sub.id} className="py-1 px-1.5 text-[#93A0AA] font-mono-tag text-xs">
+                              —
+                            </td>
+                          );
+                        }
+
+                        const b = bandForMark(num, sub);
+                        const isBelow = num < sub.pass;
+
+                        return (
+                          <td key={sub.id} className="py-1 px-1.5">
+                            <span
+                              className="relative inline-flex items-center justify-center w-[40px] h-[26px] rounded-[6px] font-mono-tag text-[11.5px] font-semibold text-white shadow-xs"
+                              style={{ backgroundColor: bandColors[b] }}
+                              title={`${bandLabels[b]} (${num}/${sub.max})`}
+                            >
+                              {num}
+                              {isBelow && (
+                                <span
+                                  className="absolute -top-0.5 -right-0.5 w-[7px] h-[7px] rounded-full bg-[#E2A93B] border-[1.5px] border-white"
+                                  title="Below passing mark"
+                                />
+                              )}
+                            </span>
+                          </td>
+                        );
+                      })}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Legend */}
+            <div className="flex gap-3.5 items-center mt-3 text-[11px] text-[#5B6B78] flex-wrap pt-2">
+              {[5, 4, 3, 2, 1].map((b) => (
+                <span key={b} className="flex items-center gap-1.5">
+                  <span
+                    className="w-[11px] h-[11px] rounded-[3px] inline-block"
+                    style={{ backgroundColor: bandColors[b] }}
+                  />
+                  <span>{bandLabels[b]}</span>
+                </span>
+              ))}
+              <span className="flex items-center gap-1.5">
+                <span className="w-[11px] h-[11px] rounded-[3px] inline-block bg-white border-2 border-[#E2A93B]" />
+                <span>flagged (below pass)</span>
+              </span>
+              <span className="flex items-center gap-1.5">
+                <span className="px-1 py-0.2 rounded bg-[#FBEED3] border border-[#E2A93B] text-[#B9852A] font-bold text-[9.5px]">AB</span>
+                <span>Absent</span>
+              </span>
+              <span className="flex items-center gap-1.5">
+                <span className="px-1 py-0.2 rounded bg-[#EEF0EE] border border-[#DCE2DE] text-[#5B6B78] font-bold text-[9.5px]">NA</span>
+                <span>Optional / Not applicable</span>
+              </span>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};

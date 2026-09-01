@@ -1,0 +1,6 @@
+{
+  "name": "School Register",
+  "description": "Classes, Exams & Classroom Insights for teachers and school administrators",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

@@ -193,21 +193,25 @@ export function computeInsights(exam: ExamItem): InsightsData | null {
       .map(Number);
 
     if (vals.length === 0) {
-      return { sub, avgPct: 0, n: 0, onTrack: 0, needsSupport: 0 };
+      return { sub, avgScore: 0, avgPct: 0, n: 0, onTrack: 0, needsSupport: 0, minScore: 0, maxScore: 0 };
     }
+    const avgScore = mean(vals);
     const pcts = vals.map((v) => (v / sub.max) * 100);
     const onTrack = pcts.filter((p) => p >= 60).length;
     return {
       sub,
+      avgScore,
       avgPct: mean(pcts),
       n: vals.length,
       onTrack,
       needsSupport: pcts.length - onTrack,
+      minScore: Math.min(...vals),
+      maxScore: Math.max(...vals),
     };
   });
 
   const sortedSubj = [...subjStats].sort((a, b) => a.avgPct - b.avgPct);
-  const weakest = sortedSubj[0] || { sub: subjects[0], avgPct: 0, n: 0, onTrack: 0, needsSupport: 0 };
+  const weakest = sortedSubj[0] || { sub: subjects[0], avgScore: 0, avgPct: 0, n: 0, onTrack: 0, needsSupport: 0, minScore: 0, maxScore: 0 };
   const strongest = sortedSubj[sortedSubj.length - 1] || weakest;
 
   const distCounts: Record<number, number> = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 };

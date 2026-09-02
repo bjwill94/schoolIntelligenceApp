@@ -364,6 +364,62 @@ export const EnterMarksTab: React.FC<EnterMarksTabProps> = ({
               })
             )}
           </tbody>
+          <tfoot>
+            <tr className="bg-[#FAFBF9] border-t-2 border-[#16232E]">
+              <td colSpan={2} className="py-2.5 px-3 font-semibold text-[11.5px] text-[#16232E] uppercase font-mono-tag tracking-wider">
+                Class Average
+              </td>
+              {subjects.map((sub) => {
+                const validMarks = students
+                  .map((st) => st.marks[sub.id])
+                  .filter((v) => isNumericMark(v))
+                  .map(Number);
+                const avgScore = validMarks.length > 0 ? validMarks.reduce((a, b) => a + b, 0) / validMarks.length : null;
+                const avgPct = avgScore !== null && sub.max > 0 ? (avgScore / sub.max) * 100 : null;
+
+                return (
+                  <td key={sub.id} className="py-2.5 px-2 text-center font-mono-tag">
+                    {avgScore !== null ? (
+                      <div className="flex flex-col items-center leading-tight">
+                        <span className="text-[13px] font-bold text-[#16232E]">
+                          {avgScore.toFixed(1)}
+                        </span>
+                        <span className="text-[10px] text-[#5B6B78]">
+                          {avgPct !== null ? `${avgPct.toFixed(0)}%` : ''}
+                        </span>
+                      </div>
+                    ) : (
+                      <span className="text-[12px] text-[#93A0AA]">—</span>
+                    )}
+                  </td>
+                );
+              })}
+              <td className="py-2.5 px-3 text-center font-mono-tag font-bold text-[12.5px] text-[#16232E]">
+                {(() => {
+                  const pcts = students
+                    .map((st) => {
+                      let got = 0;
+                      let max = 0;
+                      let hasNum = false;
+                      subjects.forEach((sub) => {
+                        const v = st.marks[sub.id];
+                        if (isNumericMark(v)) {
+                          got += Number(v);
+                          max += sub.max;
+                          hasNum = true;
+                        }
+                      });
+                      return hasNum && max > 0 ? (got / max) * 100 : null;
+                    })
+                    .filter((v): v is number => v !== null);
+                  if (pcts.length === 0) return '—';
+                  const avg = pcts.reduce((a, b) => a + b, 0) / pcts.length;
+                  return `${avg.toFixed(0)}%`;
+                })()}
+              </td>
+              <td className="w-[36px]"></td>
+            </tr>
+          </tfoot>
         </table>
       </div>
 

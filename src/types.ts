@@ -37,10 +37,13 @@ export type ExamTabType = 'entry' | 'insights';
 
 export interface SubjectStat {
   sub: SubjectItem;
+  avgScore: number;
   avgPct: number;
   n: number;
   onTrack: number;
   needsSupport: number;
+  minScore: number;
+  maxScore: number;
 }
 
 export interface AttentionIssue {

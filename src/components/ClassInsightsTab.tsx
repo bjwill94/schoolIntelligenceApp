@@ -77,7 +77,7 @@ export const ClassInsightsTab: React.FC<ClassInsightsTabProps> = ({
             {weakest.sub.name}
           </div>
           <div className="text-[12px] text-[#5B6B78] leading-relaxed">
-            Averaging {weakest.avgPct.toFixed(0)}% — the lowest in the class right now.
+            Avg {weakest.avgScore.toFixed(1)} / {weakest.sub.max} ({weakest.avgPct.toFixed(0)}%) — lowest in class.
           </div>
         </div>
 
@@ -90,7 +90,7 @@ export const ClassInsightsTab: React.FC<ClassInsightsTabProps> = ({
             {strongest.sub.name}
           </div>
           <div className="text-[12px] text-[#5B6B78] leading-relaxed">
-            Averaging {strongest.avgPct.toFixed(0)}% — the strongest subject this exam.
+            Avg {strongest.avgScore.toFixed(1)} / {strongest.sub.max} ({strongest.avgPct.toFixed(0)}%) — strongest in class.
           </div>
         </div>
 
@@ -200,10 +200,41 @@ export const ClassInsightsTab: React.FC<ClassInsightsTabProps> = ({
               ))}
             </select>
           </div>
-          <p className="text-[12px] text-[#5B6B78] m-0 mb-2.5">
+          <p className="text-[12px] text-[#5B6B78] m-0 mb-2">
             Pick a subject to see its complete performance split.
           </p>
-          <div className="h-[210px] w-full relative">
+          {currentSelectedSub && (
+            (() => {
+              const st = subjStats.find((s) => s.sub.id === currentSelectedSub.id);
+              if (!st) return null;
+              return (
+                <div className="flex items-center justify-between gap-2 bg-[#FAFBF9] border border-[#DCE2DE] rounded-lg px-3 py-2 mb-2 flex-wrap text-xs">
+                  <div>
+                    <span className="font-mono-tag text-[9px] uppercase text-[#5B6B78] block">Class Avg Score</span>
+                    <span className="font-bold text-[13px] text-[#16232E]">
+                      {st.n > 0 ? st.avgScore.toFixed(1) : '—'} <span className="text-[10px] font-normal text-[#5B6B78]">/ {st.sub.max}</span>
+                    </span>
+                  </div>
+                  <div className="h-5 w-[1px] bg-[#DCE2DE] hidden sm:block" />
+                  <div>
+                    <span className="font-mono-tag text-[9px] uppercase text-[#5B6B78] block">Avg %</span>
+                    <span className="font-bold text-[13px] text-[#16232E]">{st.n > 0 ? `${st.avgPct.toFixed(0)}%` : '—'}</span>
+                  </div>
+                  <div className="h-5 w-[1px] bg-[#DCE2DE] hidden sm:block" />
+                  <div>
+                    <span className="font-mono-tag text-[9px] uppercase text-[#5B6B78] block">Range</span>
+                    <span className="font-mono-tag text-[11.5px] text-[#16232E]">{st.n > 0 ? `${st.minScore}–${st.maxScore}` : '—'}</span>
+                  </div>
+                  <div className="h-5 w-[1px] bg-[#DCE2DE] hidden sm:block" />
+                  <div>
+                    <span className="font-mono-tag text-[9px] uppercase text-[#5B6B78] block">On Track</span>
+                    <span className="font-bold text-[12px] text-[#3F7A5C]">{st.n > 0 ? `${st.onTrack}/${st.n}` : '—'}</span>
+                  </div>
+                </div>
+              );
+            })()
+          )}
+          <div className="h-[180px] w-full relative">
             {currentSelectedSub && (
               <DetailChart
                 validStudents={validStudents}
@@ -211,6 +242,60 @@ export const ClassInsightsTab: React.FC<ClassInsightsTabProps> = ({
               />
             )}
           </div>
+        </div>
+      </div>
+
+      {/* Subject Performance Breakdown Table */}
+      <div className="bg-white border border-[#DCE2DE] rounded-[10px] p-[18px] sm:p-5 shadow-xs">
+        <h3 className="font-serif-title text-[16px] font-semibold text-[#16232E] m-0 mb-1">
+          Subject Average Marks &amp; Breakdown
+        </h3>
+        <p className="text-[12px] text-[#5B6B78] m-0 mb-3.5">
+          Detailed breakdown of class average marks, percentage, score range, and pass criteria per subject.
+        </p>
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[540px] border-collapse text-left text-[13px]">
+            <thead>
+              <tr className="border-b-2 border-[#16232E] bg-[#FAFBF9]">
+                <th className="font-mono-tag text-[10.5px] uppercase text-[#5B6B78] py-2.5 px-3">Subject</th>
+                <th className="font-mono-tag text-[10.5px] uppercase text-[#5B6B78] py-2.5 px-3 text-center">Max</th>
+                <th className="font-mono-tag text-[10.5px] uppercase text-[#5B6B78] py-2.5 px-3 text-center">Pass</th>
+                <th className="font-mono-tag text-[10.5px] uppercase text-[#5B6B78] py-2.5 px-3 text-center">Class Avg Score</th>
+                <th className="font-mono-tag text-[10.5px] uppercase text-[#5B6B78] py-2.5 px-3 text-center">Avg %</th>
+                <th className="font-mono-tag text-[10.5px] uppercase text-[#5B6B78] py-2.5 px-3 text-center">Highest / Lowest</th>
+                <th className="font-mono-tag text-[10.5px] uppercase text-[#5B6B78] py-2.5 px-3 text-right pr-3">On Track (60%+)</th>
+              </tr>
+            </thead>
+            <tbody>
+              {subjStats.map((st) => (
+                <tr key={st.sub.id} className="border-b border-[#DCE2DE] hover:bg-[#FAFBF9] transition-colors">
+                  <td className="py-2.5 px-3 font-semibold text-[#1C2B39]">{st.sub.name}</td>
+                  <td className="py-2.5 px-3 text-center font-mono-tag text-[#5B6B78]">{st.sub.max}</td>
+                  <td className="py-2.5 px-3 text-center font-mono-tag text-[#5B6B78]">{st.sub.pass}</td>
+                  <td className="py-2.5 px-3 text-center font-mono-tag font-bold text-[#16232E]">
+                    {st.n > 0 ? (
+                      <span>
+                        {st.avgScore.toFixed(1)} <span className="font-normal text-[11px] text-[#5B6B78]">/ {st.sub.max}</span>
+                      </span>
+                    ) : (
+                      '—'
+                    )}
+                  </td>
+                  <td className="py-2.5 px-3 text-center font-mono-tag">
+                    <span className={`px-2 py-0.5 rounded text-[11.5px] font-semibold ${st.avgPct >= 60 ? 'bg-[#E1F0E7] text-[#3F7A5C]' : 'bg-[#F7E4DC] text-[#B24A2C]'}`}>
+                      {st.n > 0 ? `${st.avgPct.toFixed(1)}%` : '—'}
+                    </span>
+                  </td>
+                  <td className="py-2.5 px-3 text-center font-mono-tag text-[12px] text-[#5B6B78]">
+                    {st.n > 0 ? `${st.maxScore} / ${st.minScore}` : '—'}
+                  </td>
+                  <td className="py-2.5 px-3 text-right pr-3 font-mono-tag text-[12px] text-[#16232E]">
+                    {st.n > 0 ? `${st.onTrack} / ${st.n}` : '—'}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
       </div>
 
@@ -386,6 +471,31 @@ export const ClassInsightsTab: React.FC<ClassInsightsTabProps> = ({
                     </tr>
                   ))}
                 </tbody>
+                <tfoot>
+                  <tr className="border-t-2 border-[#16232E] bg-[#FAFBF9]">
+                    <td className="text-left text-[11.5px] font-bold text-[#16232E] font-mono-tag uppercase py-2 px-1.5 pl-1">
+                      Class Avg
+                    </td>
+                    {subjects.map((sub) => {
+                      const st = subjStats.find((s) => s.sub.id === sub.id);
+                      if (!st || st.n === 0) {
+                        return (
+                          <td key={sub.id} className="py-2 px-1.5 font-mono-tag text-xs text-[#93A0AA]">
+                            —
+                          </td>
+                        );
+                      }
+                      return (
+                        <td key={sub.id} className="py-2 px-1.5 font-mono-tag font-bold text-[12px] text-[#16232E]">
+                          <div className="flex flex-col items-center leading-tight">
+                            <span>{st.avgScore.toFixed(1)}</span>
+                            <span className="text-[9.5px] text-[#5B6B78] font-normal">{st.avgPct.toFixed(0)}%</span>
+                          </div>
+                        </td>
+                      );
+                    })}
+                  </tr>
+                </tfoot>
               </table>
             </div>
 

@@ -88,21 +88,19 @@ export const ExamScreen: React.FC<ExamScreenProps> = ({
       <div className="flex gap-2 mb-5">
         <button
           onClick={() => onTabChange('entry')}
-          className={`font-sans-body font-semibold text-[13.5px] px-4 py-2 rounded-full border-[1.5px] cursor-pointer transition-all ${
-            activeTab === 'entry'
+          className={`font-sans-body font-semibold text-[13.5px] px-4 py-2 rounded-full border-[1.5px] cursor-pointer transition-all ${activeTab === 'entry'
               ? 'bg-[#16232E] border-[#16232E] text-white'
               : 'bg-white border-[#C3CCC7] text-[#5B6B78] hover:border-[#5B6B78] hover:text-[#1C2B39]'
-          }`}
+            }`}
         >
           Enter Marks
         </button>
         <button
           onClick={() => onTabChange('insights')}
-          className={`font-sans-body font-semibold text-[13.5px] px-4 py-2 rounded-full border-[1.5px] cursor-pointer transition-all ${
-            activeTab === 'insights'
+          className={`font-sans-body font-semibold text-[13.5px] px-4 py-2 rounded-full border-[1.5px] cursor-pointer transition-all ${activeTab === 'insights'
               ? 'bg-[#16232E] border-[#16232E] text-white'
               : 'bg-white border-[#C3CCC7] text-[#5B6B78] hover:border-[#5B6B78] hover:text-[#1C2B39]'
-          }`}
+            }`}
         >
           Class Insights
         </button>

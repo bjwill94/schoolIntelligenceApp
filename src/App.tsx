@@ -1,22 +1,111 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { ClassItem, ExamItem, ExamTabType, ScreenType, StudentItem, SubjectItem } from './types';
 import { createDemoSeedData, generateId, getInitialData, saveClassesData } from './data/seed';
 import { Header } from './components/Header';
 import { HomeScreen } from './components/HomeScreen';
 import { ClassScreen } from './components/ClassScreen';
 import { ExamScreen } from './components/ExamScreen';
+import { LoginScreen } from './components/LoginScreen';
+import { AuthModal } from './components/AuthModal';
+import { supabase, isSupabaseConfigured } from './lib/supabase';
+import {
+  loadClassesForUser,
+  syncClassToSupabase,
+  syncAllClassesToSupabase,
+  deleteClassFromSupabase,
+} from './services/dbService';
 
 export default function App() {
   const [classes, setClasses] = useState<ClassItem[]>(getInitialData);
-  const [screen, setScreen] = useState<ScreenType>('home');
+  // Default to login screen so users can sign in to their Supabase account
+  const [screen, setScreen] = useState<ScreenType>('login');
   const [currentClassId, setCurrentClassId] = useState<string | null>(null);
   const [currentExamId, setCurrentExamId] = useState<string | null>(null);
   const [examTab, setExamTab] = useState<ExamTabType>('entry');
 
-  // Save to localStorage on change
+  // Supabase Auth and Sync state
+  const [user, setUser] = useState<any | null>(null);
+  const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
+  const [syncState, setSyncState] = useState<'idle' | 'syncing' | 'saved' | 'error'>('saved');
+  const [authChecked, setAuthChecked] = useState(false);
+  const isInitialLoadRef = useRef(true);
+
+  // Check initial Supabase session on app launch
+  useEffect(() => {
+    if (!isSupabaseConfigured) {
+      setAuthChecked(true);
+      return;
+    }
+
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (session?.user) {
+        setUser(session.user);
+        handleUserSignedIn(session.user);
+        setScreen('home');
+      }
+      setAuthChecked(true);
+    });
+
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange(async (_event, session) => {
+      if (session?.user) {
+        setUser(session.user);
+        handleUserSignedIn(session.user);
+        setScreen((prev) => (prev === 'login' ? 'home' : prev));
+      } else {
+        setUser(null);
+      }
+    });
+
+    return () => {
+      subscription.unsubscribe();
+    };
+  }, []);
+
+  // When a user signs in, load their classes from Supabase
+  const handleUserSignedIn = async (signedInUser: any) => {
+    setSyncState('syncing');
+    try {
+      const userClasses = await loadClassesForUser(signedInUser.id);
+      setClasses(userClasses);
+      setSyncState('saved');
+    } catch (err) {
+      console.error('Failed to load user classes:', err);
+      setSyncState('error');
+    }
+  };
+
+  const handleSignOut = async () => {
+    if (isSupabaseConfigured) {
+      await supabase.auth.signOut();
+    }
+    setUser(null);
+    setClasses(getInitialData());
+    setScreen('login');
+    setCurrentClassId(null);
+    setCurrentExamId(null);
+  };
+
+  // Sync to localStorage and Supabase whenever classes update
   useEffect(() => {
     saveClassesData(classes);
-  }, [classes]);
+
+    if (isInitialLoadRef.current) {
+      isInitialLoadRef.current = false;
+      return;
+    }
+
+    if (user && isSupabaseConfigured) {
+      setSyncState('syncing');
+      const debounceTimer = setTimeout(async () => {
+        const success = await syncAllClassesToSupabase(user.id, classes);
+        setSyncState(success ? 'saved' : 'error');
+      }, 600);
+
+      return () => clearTimeout(debounceTimer);
+    }
+  }, [classes, user]);
 
   const currentClass = classes.find((c) => c.id === currentClassId) || null;
   const currentExam = currentClass?.exams.find((e) => e.id === currentExamId) || null;
@@ -38,7 +127,7 @@ export default function App() {
     setScreen('exam');
   };
 
-  const handleCreateClass = (grade: string, section: string) => {
+  const handleCreateClass = async (grade: string, section: string) => {
     const newClass: ClassItem = {
       id: generateId('c'),
       grade,
@@ -49,9 +138,16 @@ export default function App() {
     setClasses(updated);
     setCurrentClassId(newClass.id);
     setScreen('class');
+
+    // Immediate Supabase sync
+    if (user && isSupabaseConfigured) {
+      setSyncState('syncing');
+      const success = await syncClassToSupabase(user.id, newClass);
+      setSyncState(success ? 'saved' : 'error');
+    }
   };
 
-  const handleCreateExam = (classId: string, name: string, dateLabel: string) => {
+  const handleCreateExam = async (classId: string, name: string, dateLabel: string) => {
     const cls = classes.find((c) => c.id === classId);
     if (!cls) return;
 
@@ -61,9 +157,7 @@ export default function App() {
     // Copy forward roster and subjects from latest exam if any
     if (cls.exams.length > 0) {
       const latest = cls.exams[cls.exams.length - 1];
-      // Reuse subject IDs
       subjects = latest.subjects.map((s) => ({ ...s }));
-      // Reuse student IDs and blank marks, preserving NA for optional subjects
       students = latest.students.map((st) => {
         const initialMarks: Record<string, string> = {};
         subjects.forEach((s) => {
@@ -102,9 +196,20 @@ export default function App() {
     setCurrentExamId(newExam.id);
     setExamTab('entry');
     setScreen('exam');
+
+    // Immediate Supabase sync
+    if (user && isSupabaseConfigured) {
+      setSyncState('syncing');
+      const targetClass = updatedClasses.find((c) => c.id === classId);
+      if (targetClass) {
+        const success = await syncClassToSupabase(user.id, targetClass);
+        setSyncState(success ? 'saved' : 'error');
+      }
+    }
   };
 
-  const handleCreateExamWithData = (
+  // EXCEL / CSV / JSON IMPORT HANDLER: Stored directly into the Class and Supabase
+  const handleCreateExamWithData = async (
     classId: string,
     name: string,
     dateLabel: string,
@@ -130,9 +235,19 @@ export default function App() {
     setCurrentExamId(newExam.id);
     setExamTab('entry');
     setScreen('exam');
+
+    // Persist immediately to Supabase
+    if (user && isSupabaseConfigured) {
+      setSyncState('syncing');
+      const targetClass = updatedClasses.find((c) => c.id === classId);
+      if (targetClass) {
+        const success = await syncClassToSupabase(user.id, targetClass);
+        setSyncState(success ? 'saved' : 'error');
+      }
+    }
   };
 
-  const handleDeleteExam = (classId: string, examId: string) => {
+  const handleDeleteExam = async (classId: string, examId: string) => {
     const updatedClasses = classes.map((c) => {
       if (c.id === classId) {
         return {
@@ -142,19 +257,32 @@ export default function App() {
       }
       return c;
     });
+
     setClasses(updatedClasses);
     if (currentExamId === examId) {
       setScreen('class');
     }
+
+    if (user && isSupabaseConfigured) {
+      setSyncState('syncing');
+      const targetClass = updatedClasses.find((c) => c.id === classId);
+      if (targetClass) {
+        const success = await syncClassToSupabase(user.id, targetClass);
+        setSyncState(success ? 'saved' : 'error');
+      }
+    }
   };
 
-  const handleDeleteClass = (classId: string) => {
+  const handleDeleteClass = async (classId: string) => {
+    if (user && isSupabaseConfigured) {
+      await deleteClassFromSupabase(user.id, classId);
+    }
     const updatedClasses = classes.filter((c) => c.id !== classId);
     setClasses(updatedClasses);
     setScreen('home');
   };
 
-  const handleUpdateExam = (updatedExam: ExamItem) => {
+  const handleUpdateExam = async (updatedExam: ExamItem) => {
     if (!currentClassId) return;
     const updatedClasses = classes.map((c) => {
       if (c.id === currentClassId) {
@@ -165,7 +293,18 @@ export default function App() {
       }
       return c;
     });
+
     setClasses(updatedClasses);
+
+    // Immediate Supabase sync for marks update
+    if (user && isSupabaseConfigured) {
+      setSyncState('syncing');
+      const targetClass = updatedClasses.find((c) => c.id === currentClassId);
+      if (targetClass) {
+        const success = await syncClassToSupabase(user.id, targetClass);
+        setSyncState(success ? 'saved' : 'error');
+      }
+    }
   };
 
   const handleResetDemo = () => {
@@ -187,9 +326,26 @@ export default function App() {
         onGoHome={handleGoHome}
         onOpenClass={handleOpenClass}
         onResetDemo={handleResetDemo}
+        user={user}
+        onOpenAuth={() => setScreen('login')}
+        onSignOut={handleSignOut}
+        syncState={syncState}
       />
 
       <main>
+        {screen === 'login' && (
+          <LoginScreen
+            onLoginSuccess={(authedUser) => {
+              setUser(authedUser);
+              handleUserSignedIn(authedUser);
+              setScreen('home');
+            }}
+            onContinueGuest={() => {
+              setScreen('home');
+            }}
+          />
+        )}
+
         {screen === 'home' && (
           <HomeScreen
             classes={classes}
@@ -219,6 +375,15 @@ export default function App() {
           />
         )}
       </main>
+
+      <AuthModal
+        isOpen={isAuthModalOpen}
+        onClose={() => setIsAuthModalOpen(false)}
+        onAuthSuccess={(authedUser) => {
+          setUser(authedUser);
+          handleUserSignedIn(authedUser);
+        }}
+      />
     </div>
   );
 }

@@ -56,13 +56,16 @@ body {
   height: 6px;
   width: 6px;
 }
+
 ::-webkit-scrollbar-track {
   background: #f1f3f0;
 }
+
 ::-webkit-scrollbar-thumb {
   background: #c9d2cd;
   border-radius: 4px;
 }
+
 ::-webkit-scrollbar-thumb:hover {
   background: #aab5af;
 }

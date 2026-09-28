@@ -12,6 +12,7 @@ import {
   DetailChart,
 } from './ChartComponents';
 import { ChevronRight } from 'lucide-react';
+import { SubjectMultiSelect } from './SubjectMultiSelect';
 
 interface ClassInsightsTabProps {
   exam: ExamItem;
@@ -29,6 +30,7 @@ export const ClassInsightsTab: React.FC<ClassInsightsTabProps> = ({
     subjects.length > 0 ? subjects[0].id : ''
   );
   const [isGridOpen, setIsGridOpen] = useState(false);
+  const [attentionSubs, setAttentionSubs] = useState<string[]>([]);
 
   if (!insights || insights.validStudents.length === 0) {
     return (
@@ -63,6 +65,25 @@ export const ClassInsightsTab: React.FC<ClassInsightsTabProps> = ({
 
   const currentSelectedSub =
     subjects.find((s) => s.id === selectedSubjectId) || subjects[0];
+
+  const attentionCounts: Record<string, number> = {};
+  attention.forEach((a) => {
+    a.issues.forEach((i) => {
+      attentionCounts[i.subject.id] = (attentionCounts[i.subject.id] || 0) + 1;
+    });
+  });
+
+  const activeAttentionSubs = attentionSubs.filter((id) => subjects.some((s) => s.id === id));
+  const isAttentionFiltered = activeAttentionSubs.length > 0;
+  const filteredAttention = !isAttentionFiltered
+    ? attention
+    : attention
+        .map((a) => ({
+          ...a,
+          issues: a.issues.filter((i) => activeAttentionSubs.includes(i.subject.id)),
+        }))
+        .filter((a) => a.issues.length > 0)
+        .sort((x, y) => y.issues.length - x.issues.length || x.st.roll - y.st.roll);
 
   return (
     <div className="flex flex-col gap-5 animate-fade">
@@ -100,9 +121,8 @@ export const ClassInsightsTab: React.FC<ClassInsightsTabProps> = ({
             Pass rate
           </span>
           <div
-            className={`font-serif-title font-semibold text-[22px] leading-tight ${
-              passPct < 70 ? 'text-[#B24A2C]' : 'text-[#16232E]'
-            }`}
+            className={`font-serif-title font-semibold text-[22px] leading-tight ${passPct < 70 ? 'text-[#B24A2C]' : 'text-[#16232E]'
+              }`}
           >
             {overallPassCount} / {validStudents.length}
           </div>
@@ -117,9 +137,8 @@ export const ClassInsightsTab: React.FC<ClassInsightsTabProps> = ({
             Needs attention
           </span>
           <div
-            className={`font-serif-title font-semibold text-[22px] leading-tight ${
-              attention.length > 0 ? 'text-[#B24A2C]' : 'text-[#3F7A5C]'
-            }`}
+            className={`font-serif-title font-semibold text-[22px] leading-tight ${attention.length > 0 ? 'text-[#B24A2C]' : 'text-[#3F7A5C]'
+              }`}
           >
             {attention.length}
           </div>
@@ -136,13 +155,12 @@ export const ClassInsightsTab: React.FC<ClassInsightsTabProps> = ({
             Class attendance
           </span>
           <div
-            className={`font-serif-title font-semibold text-[22px] leading-tight ${
-              attendance === null
+            className={`font-serif-title font-semibold text-[22px] leading-tight ${attendance === null
                 ? 'text-[#16232E]'
                 : attendance < 75
-                ? 'text-[#B24A2C]'
-                : 'text-[#3F7A5C]'
-            }`}
+                  ? 'text-[#B24A2C]'
+                  : 'text-[#3F7A5C]'
+              }`}
           >
             {attendance === null ? '—' : `${attendance}%`}
           </div>
@@ -301,20 +319,48 @@ export const ClassInsightsTab: React.FC<ClassInsightsTabProps> = ({
 
       {/* Needs Attention Card */}
       <div className="bg-white border border-[#DCE2DE] rounded-[10px] p-[18px] sm:p-5 shadow-xs">
-        <h3 className="font-serif-title text-[16px] font-semibold text-[#16232E] m-0 mb-1">
-          Needs attention
-        </h3>
+        <div className="flex items-center justify-between gap-2 flex-wrap mb-1">
+          <h3 className="font-serif-title text-[16px] font-semibold text-[#16232E] m-0">
+            Needs attention
+          </h3>
+          {subjects.length > 1 && (
+            <SubjectMultiSelect
+              subjects={subjects}
+              counts={attentionCounts}
+              selected={activeAttentionSubs}
+              onChange={setAttentionSubs}
+            />
+          )}
+        </div>
         <p className="text-[12px] text-[#5B6B78] m-0 mb-3">
           Students below passing mark or absent in evaluated subjects.
+          {isAttentionFiltered && (
+            <>
+              {' '}
+              <span className="text-[#16232E] font-medium">
+                Showing {filteredAttention.length} of {attention.length} student
+                {attention.length !== 1 ? 's' : ''}.
+              </span>{' '}
+              <button
+                type="button"
+                onClick={() => setAttentionSubs([])}
+                className="text-[#B9852A] hover:text-[#16232E] font-semibold underline cursor-pointer"
+              >
+                Clear
+              </button>
+            </>
+          )}
         </p>
 
-        {attention.length === 0 ? (
+        {filteredAttention.length === 0 ? (
           <div className="text-[13px] text-[#3F7A5C] py-2 font-medium">
-            Nobody is below passing or absent in any subject. 🎉
+            {isAttentionFiltered
+              ? 'No one is below passing or absent in the selected subject(s).'
+              : 'Nobody is below passing or absent in any subject. 🎉'}
           </div>
         ) : (
           <div className="divide-y divide-[#DCE2DE]">
-            {attention.map((a) => (
+            {filteredAttention.map((a) => (
               <div
                 key={a.st.id}
                 className="flex items-center justify-between py-2.5 text-[13px] gap-2 flex-wrap"
@@ -364,9 +410,8 @@ export const ClassInsightsTab: React.FC<ClassInsightsTabProps> = ({
             View full class grid
           </h3>
           <ChevronRight
-            className={`w-4 h-4 text-[#5B6B78] transition-transform duration-200 ${
-              isGridOpen ? 'rotate-90' : ''
-            }`}
+            className={`w-4 h-4 text-[#5B6B78] transition-transform duration-200 ${isGridOpen ? 'rotate-90' : ''
+              }`}
           />
         </div>
         <p className="text-[12px] text-[#5B6B78] mt-1 mb-0">

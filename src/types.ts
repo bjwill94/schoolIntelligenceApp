@@ -31,7 +31,7 @@ export interface ClassItem {
 
 export type ExamStatusType = 'not-started' | 'in-progress' | 'completed';
 
-export type ScreenType = 'home' | 'class' | 'exam';
+export type ScreenType = 'login' | 'home' | 'class' | 'exam';
 
 export type ExamTabType = 'entry' | 'insights';
 

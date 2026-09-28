@@ -46,6 +46,24 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
         All classes across the school — click a class to view its exams.
       </p>
 
+      {classes.length === 0 && !isAddingClass && (
+        <div className="bg-white border border-[#DCE2DE] rounded-xl p-8 text-center max-w-md mx-auto my-6 shadow-xs">
+          <h3 className="font-serif-title font-semibold text-lg text-[#16232E] mb-1">
+            No Classes Added Yet
+          </h3>
+          <p className="text-xs text-[#5B6B78] max-w-sm mx-auto mb-5">
+            Your database is ready. Create a class (e.g., Grade 10 · Section A) to begin recording marks or importing from Excel spreadsheets.
+          </p>
+          <button
+            onClick={() => setIsAddingClass(true)}
+            className="inline-flex items-center gap-1.5 px-4 py-2 bg-[#16232E] hover:bg-[#203140] text-white text-xs font-semibold rounded-lg shadow-xs cursor-pointer transition-all"
+          >
+            <Plus className="w-4 h-4 text-[#B9852A]" />
+            Create Your First Class
+          </button>
+        </div>
+      )}
+
       <div className="grid grid-cols-[repeat(auto-fill,minmax(250px,1fr))] gap-4 mt-1">
         {classes.map((cls) => {
           const latest = cls.exams.length > 0 ? cls.exams[cls.exams.length - 1] : null;

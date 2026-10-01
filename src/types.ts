@@ -39,7 +39,11 @@ export interface SubjectStat {
   sub: SubjectItem;
   avgScore: number;
   avgPct: number;
-  n: number;
+  n: number; // numeric + AB (absent counted as 0); NA and blank excluded
+  appeared: number;
+  absent: number;
+  appearedAvgScore: number;
+  appearedAvgPct: number;
   onTrack: number;
   needsSupport: number;
   minScore: number;

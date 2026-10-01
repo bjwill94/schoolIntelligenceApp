@@ -43,9 +43,11 @@ ClassItem   { id, grade, section, exams[] }
 
 What each mark value means:
 - **number**: the score.
-- **`AB`**: absent. It counts as a fail in the pass rate.
+- **`AB`**: absent. It counts as **0** in subject averages and in the student's overall %, as "needs support" in the on-track counts, as "Below passing" in the band chart, and as a fail in the pass rate.
 - **`NA`**: optional or not taken. It is skipped in every calculation.
-- **`''`**: not entered yet.
+- **`''`**: not entered yet. It is also skipped, so a half-entered exam doesn't show falsely low averages.
+
+**Subject average** = sum of the numeric marks / (students with a number + students marked AB). **Average %** = subject average / max x 100. All averages come from `subjectAverage()` in `stats.ts`, so the Enter Marks footer and the Insights tab always agree.
 
 Each exam keeps its own copy of the roster and subjects. When you create a new exam, the roster and subjects are copied from the class's latest exam with marks cleared, but `NA` marks are kept.
 
@@ -79,7 +81,7 @@ Each exam keeps its own copy of the roster and subjects. When you create a new e
 ### Logic
 | File | What it does |
 |---|---|
-| `src/utils/stats.ts` | **The insights engine.** Pure functions: `computeInsights`, `studentPct`, `bandForMark`, `overallBand`, `examStatus`, and the mark checks (`isAbsent`, `isNA`, `isNumericMark`). Also holds the band colours and labels. |
+| `src/utils/stats.ts` | **The insights engine.** Pure functions: `computeInsights`, `subjectAverage`, `studentTotals`, `studentPct`, `bandForMark`, `overallBand`, `examStatus`, and the mark checks (`isAbsent`, `isNA`, `isNumericMark`). Also holds the band colours and labels. |
 | `src/utils/excelParser.ts` | Turns a spreadsheet into subjects and students. See section 6. |
 | `src/data/seed.ts` | Demo data (Grade 10A, 10B, 6A), localStorage load and save (key `school_register_classes_v1`), and `generateId`. |
 | `src/services/dbService.ts` | Supabase CRUD: `loadClassesForUser`, `syncClassToSupabase`, `syncAllClassesToSupabase`, `deleteClassFromSupabase`. |
@@ -93,7 +95,7 @@ Each exam keeps its own copy of the roster and subjects. When you create a new e
 Only **valid students** are counted: students with at least one mark entered (a number, `AB`, or `NA`).
 
 **Headline cards**
-1. **Needs the most support**: the subject with the lowest average %.
+1. **Needs the most support**: the subject with the lowest average % (AB counted as 0). Subjects with no marks yet are ignored.
 2. **Doing well**: the subject with the highest average %.
 3. **Pass rate**: students who reached the pass mark in *every* subject they took. `AB` counts as a fail.
 4. **Needs attention**: the number of students who are below pass or absent in at least one subject.
@@ -102,11 +104,14 @@ Only **valid students** are counted: students with at least one mark entered (a 
 **Charts and tables**
 - **Whole-class distribution**: each student's overall % grouped into 5 bands.
 - **Subjects at a glance**: for each subject, how many students are on track (60% or more) vs. need support.
-- **One-subject breakdown**: pick a subject from the dropdown to see its average, average %, range, on-track count, and band chart.
-- **Subject breakdown table**: max, pass, average, average %, highest and lowest, and on-track count for every subject.
+- **One-subject breakdown**: pick a subject from the dropdown to see its class average as one figure (`60.6 / 100 (61%)`), its range, its on-track count, and its band chart. An amber **Absent: N** chip appears only when someone was absent. Hovering over it shows the average of the students who appeared.
+- **Subject breakdown table**: **sorted from highest to lowest average %**. It uses % rather than raw marks, because subjects can have different maxima. Subjects with no marks go last. Columns: max, pass, **Appeared** (e.g. `14 / 15`, with an "AB" count underneath), class average and average % (AB counted as 0), **Avg (Appeared)** (the average of the students who sat the exam), highest and lowest (students who appeared only), and on-track count. Every other view keeps register order.
 - **Needs attention list**: each flagged student with tags such as `Maths (22/100)` or `English (Absent)`, sorted with the most issues first.
   - **Subject filter** (`SubjectMultiSelect`): a checkbox dropdown that defaults to *All subjects*. Each subject shows how many students are flagged in it. Ticking one or more subjects shows students struggling in **any** of them, with only those subjects' tags, sorted by matching issues and then roll number. **Clear** resets it. The filter is not saved, and the headline "Needs attention" card always shows the unfiltered count. The dropdown is hidden when the exam has only one subject.
 - **Full class grid** (collapsible): every student and subject as a colour-coded heatmap. A dot marks a below-pass score.
+  - **Total** (e.g. `232 / 400`) and **%** columns use `studentTotals()`, with AB counted as 0 and NA excluded. Because NA is excluded, the maximum can differ between students. The footer therefore shows only the class average %, not a total.
+  - **Sort**: Roll no. (the default), Highest %, or Lowest %. It sorts by %, not raw total, so students with NA subjects are compared fairly. Ties are broken by roll number. The sort is not saved.
+  - There is deliberately **no rank column**, in line with the NEP 2020 / CBSE move away from publicly ranking students. "Lowest %" is the view for deciding who to help first.
 
 **Performance bands**
 

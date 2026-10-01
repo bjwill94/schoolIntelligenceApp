@@ -5,6 +5,8 @@ import {
   bandForMark,
   bandLabels,
   computeInsights,
+  overallBand,
+  studentTotals,
 } from '../utils/stats';
 import {
   DistributionChart,
@@ -13,6 +15,14 @@ import {
 } from './ChartComponents';
 import { ChevronRight } from 'lucide-react';
 import { SubjectMultiSelect } from './SubjectMultiSelect';
+
+type GridSortType = 'roll' | 'pctDesc' | 'pctAsc';
+
+const GRID_SORT_OPTIONS: { id: GridSortType; label: string }[] = [
+  { id: 'roll', label: 'Roll no.' },
+  { id: 'pctDesc', label: 'Highest %' },
+  { id: 'pctAsc', label: 'Lowest %' },
+];
 
 interface ClassInsightsTabProps {
   exam: ExamItem;
@@ -31,6 +41,7 @@ export const ClassInsightsTab: React.FC<ClassInsightsTabProps> = ({
   );
   const [isGridOpen, setIsGridOpen] = useState(false);
   const [attentionSubs, setAttentionSubs] = useState<string[]>([]);
+  const [gridSort, setGridSort] = useState<GridSortType>('roll');
 
   if (!insights || insights.validStudents.length === 0) {
     return (
@@ -65,6 +76,30 @@ export const ClassInsightsTab: React.FC<ClassInsightsTabProps> = ({
 
   const currentSelectedSub =
     subjects.find((s) => s.id === selectedSubjectId) || subjects[0];
+
+  const sortedSubjStats = [...subjStats].sort(
+    (a, b) =>
+      (b.n > 0 ? 1 : 0) - (a.n > 0 ? 1 : 0) ||
+      b.avgPct - a.avgPct ||
+      a.sub.name.localeCompare(b.sub.name)
+  );
+
+  const gridRows = validStudents
+    .map((st) => ({ st, totals: studentTotals(st, subjects) }))
+    .sort((a, b) => {
+      if (gridSort === 'roll') return a.st.roll - b.st.roll;
+      if (a.totals.pct === null || b.totals.pct === null) {
+        return (a.totals.pct === null ? 1 : 0) - (b.totals.pct === null ? 1 : 0) || a.st.roll - b.st.roll;
+      }
+      const d = gridSort === 'pctDesc' ? b.totals.pct - a.totals.pct : a.totals.pct - b.totals.pct;
+      return d || a.st.roll - b.st.roll;
+    });
+
+  const gridPcts = gridRows
+    .map((r) => r.totals.pct)
+    .filter((p): p is number => p !== null);
+  const gridClassAvgPct =
+    gridPcts.length > 0 ? gridPcts.reduce((a, b) => a + b, 0) / gridPcts.length : null;
 
   const attentionCounts: Record<string, number> = {};
   attention.forEach((a) => {
@@ -228,20 +263,33 @@ export const ClassInsightsTab: React.FC<ClassInsightsTabProps> = ({
               return (
                 <div className="flex items-center justify-between gap-2 bg-[#FAFBF9] border border-[#DCE2DE] rounded-lg px-3 py-2 mb-2 flex-wrap text-xs">
                   <div>
-                    <span className="font-mono-tag text-[9px] uppercase text-[#5B6B78] block">Class Avg Score</span>
-                    <span className="font-bold text-[13px] text-[#16232E]">
-                      {st.n > 0 ? st.avgScore.toFixed(1) : '—'} <span className="text-[10px] font-normal text-[#5B6B78]">/ {st.sub.max}</span>
+                    <span className="font-mono-tag text-[9px] uppercase text-[#5B6B78] block">Class Average</span>
+                    {st.n > 0 ? (
+                      <span className="font-bold text-[13px] text-[#16232E]">
+                        {st.avgScore.toFixed(1)}{' '}
+                        <span className="text-[10px] font-normal text-[#5B6B78]">/ {st.sub.max}</span>{' '}
+                        <span className="text-[11px] font-semibold text-[#5B6B78]">({st.avgPct.toFixed(0)}%)</span>
+                      </span>
+                    ) : (
+                      <span className="font-bold text-[13px] text-[#16232E]">—</span>
+                    )}
+                  </div>
+                  {st.absent > 0 && (
+                    <span
+                      className="font-mono-tag text-[11px] font-semibold px-2 py-0.5 rounded bg-[#FBEED3] text-[#B9852A] border border-[#E2A93B] cursor-help"
+                      title={
+                        st.appeared > 0
+                          ? `Average of the ${st.appeared} who appeared: ${st.appearedAvgScore.toFixed(1)} (${st.appearedAvgPct.toFixed(0)}%)`
+                          : 'Every student was absent'
+                      }
+                    >
+                      Absent: {st.absent}
                     </span>
-                  </div>
-                  <div className="h-5 w-[1px] bg-[#DCE2DE] hidden sm:block" />
-                  <div>
-                    <span className="font-mono-tag text-[9px] uppercase text-[#5B6B78] block">Avg %</span>
-                    <span className="font-bold text-[13px] text-[#16232E]">{st.n > 0 ? `${st.avgPct.toFixed(0)}%` : '—'}</span>
-                  </div>
+                  )}
                   <div className="h-5 w-[1px] bg-[#DCE2DE] hidden sm:block" />
                   <div>
                     <span className="font-mono-tag text-[9px] uppercase text-[#5B6B78] block">Range</span>
-                    <span className="font-mono-tag text-[11.5px] text-[#16232E]">{st.n > 0 ? `${st.minScore}–${st.maxScore}` : '—'}</span>
+                    <span className="font-mono-tag text-[11.5px] text-[#16232E]">{st.appeared > 0 ? `${st.minScore}–${st.maxScore}` : '—'}</span>
                   </div>
                   <div className="h-5 w-[1px] bg-[#DCE2DE] hidden sm:block" />
                   <div>
@@ -269,27 +317,41 @@ export const ClassInsightsTab: React.FC<ClassInsightsTabProps> = ({
           Subject Average Marks &amp; Breakdown
         </h3>
         <p className="text-[12px] text-[#5B6B78] m-0 mb-3.5">
-          Detailed breakdown of class average marks, percentage, score range, and pass criteria per subject.
+          Absent students count as 0; NA is excluded. Sorted from highest to lowest average %.
         </p>
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[540px] border-collapse text-left text-[13px]">
+          <table className="w-full min-w-[760px] border-collapse text-left text-[13px]">
             <thead>
               <tr className="border-b-2 border-[#16232E] bg-[#FAFBF9]">
                 <th className="font-mono-tag text-[10.5px] uppercase text-[#5B6B78] py-2.5 px-3">Subject</th>
                 <th className="font-mono-tag text-[10.5px] uppercase text-[#5B6B78] py-2.5 px-3 text-center">Max</th>
                 <th className="font-mono-tag text-[10.5px] uppercase text-[#5B6B78] py-2.5 px-3 text-center">Pass</th>
+                <th className="font-mono-tag text-[10.5px] uppercase text-[#5B6B78] py-2.5 px-3 text-center">Appeared</th>
                 <th className="font-mono-tag text-[10.5px] uppercase text-[#5B6B78] py-2.5 px-3 text-center">Class Avg Score</th>
                 <th className="font-mono-tag text-[10.5px] uppercase text-[#5B6B78] py-2.5 px-3 text-center">Avg %</th>
+                <th className="font-mono-tag text-[10.5px] uppercase text-[#5B6B78] py-2.5 px-3 text-center">Avg (Appeared)</th>
                 <th className="font-mono-tag text-[10.5px] uppercase text-[#5B6B78] py-2.5 px-3 text-center">Highest / Lowest</th>
                 <th className="font-mono-tag text-[10.5px] uppercase text-[#5B6B78] py-2.5 px-3 text-right pr-3">On Track (60%+)</th>
               </tr>
             </thead>
             <tbody>
-              {subjStats.map((st) => (
+              {sortedSubjStats.map((st) => (
                 <tr key={st.sub.id} className="border-b border-[#DCE2DE] hover:bg-[#FAFBF9] transition-colors">
                   <td className="py-2.5 px-3 font-semibold text-[#1C2B39]">{st.sub.name}</td>
                   <td className="py-2.5 px-3 text-center font-mono-tag text-[#5B6B78]">{st.sub.max}</td>
                   <td className="py-2.5 px-3 text-center font-mono-tag text-[#5B6B78]">{st.sub.pass}</td>
+                  <td className="py-2.5 px-3 text-center font-mono-tag text-[12px] text-[#16232E]">
+                    {st.n > 0 ? (
+                      <div className="flex flex-col items-center leading-tight">
+                        <span>{st.appeared} / {st.n}</span>
+                        {st.absent > 0 && (
+                          <span className="text-[10px] font-semibold text-[#B9852A]">{st.absent} AB</span>
+                        )}
+                      </div>
+                    ) : (
+                      '—'
+                    )}
+                  </td>
                   <td className="py-2.5 px-3 text-center font-mono-tag font-bold text-[#16232E]">
                     {st.n > 0 ? (
                       <span>
@@ -305,7 +367,19 @@ export const ClassInsightsTab: React.FC<ClassInsightsTabProps> = ({
                     </span>
                   </td>
                   <td className="py-2.5 px-3 text-center font-mono-tag text-[12px] text-[#5B6B78]">
-                    {st.n > 0 ? `${st.maxScore} / ${st.minScore}` : '—'}
+                    {st.appeared > 0 ? (
+                      <div className="flex flex-col items-center leading-tight">
+                        <span>
+                          {st.appearedAvgScore.toFixed(1)} <span className="text-[11px]">/ {st.sub.max}</span>
+                        </span>
+                        <span className="text-[10px]">{st.appearedAvgPct.toFixed(1)}%</span>
+                      </div>
+                    ) : (
+                      '—'
+                    )}
+                  </td>
+                  <td className="py-2.5 px-3 text-center font-mono-tag text-[12px] text-[#5B6B78]">
+                    {st.appeared > 0 ? `${st.maxScore} / ${st.minScore}` : '—'}
                   </td>
                   <td className="py-2.5 px-3 text-right pr-3 font-mono-tag text-[12px] text-[#16232E]">
                     {st.n > 0 ? `${st.onTrack} / ${st.n}` : '—'}
@@ -409,19 +483,48 @@ export const ClassInsightsTab: React.FC<ClassInsightsTabProps> = ({
           <h3 className="font-serif-title text-[16px] font-semibold text-[#16232E] m-0">
             View full class grid
           </h3>
-          <ChevronRight
-            className={`w-4 h-4 text-[#5B6B78] transition-transform duration-200 ${isGridOpen ? 'rotate-90' : ''
-              }`}
-          />
+          <div className="flex items-center gap-3">
+            {isGridOpen && (
+              <div
+                onClick={(e) => e.stopPropagation()}
+                className="inline-flex items-center gap-1.5 cursor-default"
+              >
+                <span className="font-mono-tag text-[10px] uppercase text-[#93A0AA] hidden sm:inline">
+                  Sort
+                </span>
+                <div className="inline-flex rounded-lg border-[1.5px] border-[#C3CCC7] overflow-hidden">
+                  {GRID_SORT_OPTIONS.map((opt) => (
+                    <button
+                      key={opt.id}
+                      type="button"
+                      onClick={() => setGridSort(opt.id)}
+                      aria-pressed={gridSort === opt.id}
+                      className={`font-sans-body font-semibold text-[12px] px-2.5 py-1 cursor-pointer transition-colors border-l border-[#DCE2DE] first:border-l-0 ${
+                        gridSort === opt.id
+                          ? 'bg-[#16232E] text-white'
+                          : 'bg-white text-[#5B6B78] hover:text-[#16232E]'
+                      }`}
+                    >
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+            <ChevronRight
+              className={`w-4 h-4 text-[#5B6B78] transition-transform duration-200 ${isGridOpen ? 'rotate-90' : ''
+                }`}
+            />
+          </div>
         </div>
         <p className="text-[12px] text-[#5B6B78] mt-1 mb-0">
-          Every student, every subject, colour-coded by band with AB and NA indicators.
+          Every student, every subject, colour-coded by band with AB and NA indicators, plus each student&apos;s total and %.
         </p>
 
         {isGridOpen && (
           <div className="mt-4 pt-3 border-t border-[#F4F6F3] animate-fade">
             <div className="overflow-x-auto">
-              <table className="w-full min-w-[560px] border-collapse text-center">
+              <table className="w-full min-w-[720px] border-collapse text-center">
                 <thead>
                   <tr className="border-b-2 border-[#16232E]">
                     <th className="font-mono-tag text-[10.5px] uppercase text-[#5B6B78] py-2 px-1.5 text-left pl-1">
@@ -435,10 +538,14 @@ export const ClassInsightsTab: React.FC<ClassInsightsTabProps> = ({
                         {s.name}
                       </th>
                     ))}
+                    <th className="font-mono-tag text-[10.5px] uppercase text-[#5B6B78] py-2 px-1.5 border-l border-[#DCE2DE]">
+                      Total
+                    </th>
+                    <th className="font-mono-tag text-[10.5px] uppercase text-[#5B6B78] py-2 px-1.5">%</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {validStudents.map((st) => (
+                  {gridRows.map(({ st, totals }) => (
                     <tr key={st.id} className="border-b border-[#DCE2DE]">
                       <td className="text-left text-[12.5px] font-medium text-[#1C2B39] whitespace-nowrap py-1.5 px-1.5 pl-1">
                         <span className="font-mono-tag text-[#93A0AA] text-[10.5px] mr-1.5">
@@ -513,6 +620,29 @@ export const ClassInsightsTab: React.FC<ClassInsightsTabProps> = ({
                           </td>
                         );
                       })}
+                      <td className="py-1 px-1.5 font-mono-tag text-[12px] text-[#16232E] whitespace-nowrap border-l border-[#DCE2DE]">
+                        {totals.pct !== null ? (
+                          <>
+                            <span className="font-semibold">{+totals.got.toFixed(2)}</span>
+                            <span className="text-[#5B6B78]"> / {totals.max}</span>
+                          </>
+                        ) : (
+                          <span className="text-[#93A0AA]">—</span>
+                        )}
+                      </td>
+                      <td className="py-1 px-1.5">
+                        {totals.pct !== null ? (
+                          <span
+                            className="inline-flex items-center justify-center min-w-[46px] h-[26px] px-1.5 rounded-[6px] font-mono-tag text-[11.5px] font-semibold text-white shadow-xs"
+                            style={{ backgroundColor: bandColors[overallBand(totals.pct)] }}
+                            title={bandLabels[overallBand(totals.pct)]}
+                          >
+                            {totals.pct.toFixed(0)}%
+                          </span>
+                        ) : (
+                          <span className="text-[#93A0AA] font-mono-tag text-xs">—</span>
+                        )}
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -539,6 +669,12 @@ export const ClassInsightsTab: React.FC<ClassInsightsTabProps> = ({
                         </td>
                       );
                     })}
+                    <td className="py-2 px-1.5 font-mono-tag text-xs text-[#93A0AA] border-l border-[#DCE2DE]">
+                      —
+                    </td>
+                    <td className="py-2 px-1.5 font-mono-tag font-bold text-[12px] text-[#16232E]">
+                      {gridClassAvgPct !== null ? `${gridClassAvgPct.toFixed(0)}%` : '—'}
+                    </td>
                   </tr>
                 </tfoot>
               </table>

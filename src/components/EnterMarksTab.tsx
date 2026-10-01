@@ -1,7 +1,14 @@
 import React, { useState } from 'react';
 import { ExamItem, SubjectItem, StudentItem } from '../types';
 import { generateId } from '../data/seed';
-import { isAbsent, isNA, isNumericMark, studentTotalDisplay } from '../utils/stats';
+import {
+  isAbsent,
+  isNA,
+  isNumericMark,
+  studentPct,
+  studentTotalDisplay,
+  subjectAverage,
+} from '../utils/stats';
 import { Plus, X, ArrowRight, FileSpreadsheet } from 'lucide-react';
 import { ExcelImportModal } from './ExcelImportModal';
 
@@ -370,22 +377,17 @@ export const EnterMarksTab: React.FC<EnterMarksTabProps> = ({
                 Class Average
               </td>
               {subjects.map((sub) => {
-                const validMarks = students
-                  .map((st) => st.marks[sub.id])
-                  .filter((v) => isNumericMark(v))
-                  .map(Number);
-                const avgScore = validMarks.length > 0 ? validMarks.reduce((a, b) => a + b, 0) / validMarks.length : null;
-                const avgPct = avgScore !== null && sub.max > 0 ? (avgScore / sub.max) * 100 : null;
+                const avg = subjectAverage(students, sub);
 
                 return (
                   <td key={sub.id} className="py-2.5 px-2 text-center font-mono-tag">
-                    {avgScore !== null ? (
+                    {avg.n > 0 ? (
                       <div className="flex flex-col items-center leading-tight">
                         <span className="text-[13px] font-bold text-[#16232E]">
-                          {avgScore.toFixed(1)}
+                          {avg.avgScore.toFixed(1)}
                         </span>
                         <span className="text-[10px] text-[#5B6B78]">
-                          {avgPct !== null ? `${avgPct.toFixed(0)}%` : ''}
+                          {`${avg.avgPct.toFixed(0)}%`}
                         </span>
                       </div>
                     ) : (
@@ -397,20 +399,7 @@ export const EnterMarksTab: React.FC<EnterMarksTabProps> = ({
               <td className="py-2.5 px-3 text-center font-mono-tag font-bold text-[12.5px] text-[#16232E]">
                 {(() => {
                   const pcts = students
-                    .map((st) => {
-                      let got = 0;
-                      let max = 0;
-                      let hasNum = false;
-                      subjects.forEach((sub) => {
-                        const v = st.marks[sub.id];
-                        if (isNumericMark(v)) {
-                          got += Number(v);
-                          max += sub.max;
-                          hasNum = true;
-                        }
-                      });
-                      return hasNum && max > 0 ? (got / max) * 100 : null;
-                    })
+                    .map((st) => studentPct(st, subjects))
                     .filter((v): v is number => v !== null);
                   if (pcts.length === 0) return '—';
                   const avg = pcts.reduce((a, b) => a + b, 0) / pcts.length;

@@ -10,7 +10,7 @@ import {
   BarController,
   ChartData,
 } from 'chart.js';
-import { bandColorsHex, bandLabels, bandForMark, isNumericMark } from '../utils/stats';
+import { bandColorsHex, bandLabels, bandForMark, isAbsent, isNumericMark } from '../utils/stats';
 import { StudentItem, SubjectItem, SubjectStat } from '../types';
 
 // Register Chart.js modules
@@ -222,6 +222,8 @@ export const DetailChart: React.FC<DetailChartProps> = ({ validStudents, selecte
       const v = st.marks[selectedSubject.id];
       if (isNumericMark(v)) {
         counts[bandForMark(Number(v), selectedSubject)]++;
+      } else if (isAbsent(v)) {
+        counts[1]++;
       }
     });
 

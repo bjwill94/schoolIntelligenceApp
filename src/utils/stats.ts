@@ -66,18 +66,74 @@ export function overallBand(pct: number): number {
 }
 
 export function studentPct(st: StudentItem, subjects: SubjectItem[]): number | null {
+  return studentTotals(st, subjects).pct;
+}
+
+export function studentTotals(
+  st: StudentItem,
+  subjects: SubjectItem[]
+): { got: number; max: number; pct: number | null } {
   let got = 0;
   let max = 0;
-  let hasNumeric = false;
+  let hasCounted = false;
   subjects.forEach((sub) => {
     const v = st.marks[sub.id];
     if (isNumericMark(v)) {
       got += Number(v);
       max += sub.max;
-      hasNumeric = true;
+      hasCounted = true;
+    } else if (isAbsent(v)) {
+      // Absent counts as 0 out of the subject max
+      max += sub.max;
+      hasCounted = true;
     }
   });
-  return hasNumeric && max > 0 ? (got / max) * 100 : null;
+  return { got, max, pct: hasCounted && max > 0 ? (got / max) * 100 : null };
+}
+
+export interface SubjectAverage {
+  avgScore: number;
+  avgPct: number;
+  n: number; // numeric + AB (NA and blank excluded)
+  appeared: number; // numeric only
+  absent: number;
+  appearedAvgScore: number;
+  appearedAvgPct: number;
+  minScore: number;
+  maxScore: number;
+  onTrack: number;
+}
+
+export function subjectAverage(students: StudentItem[], sub: SubjectItem): SubjectAverage {
+  const vals: number[] = [];
+  let absent = 0;
+  students.forEach((st) => {
+    const v = st.marks[sub.id];
+    if (isNumericMark(v)) {
+      vals.push(Number(v));
+    } else if (isAbsent(v)) {
+      absent++;
+    }
+  });
+
+  const n = vals.length + absent;
+  const total = vals.reduce((a, b) => a + b, 0);
+  const toPct = (score: number) => (sub.max > 0 ? (score / sub.max) * 100 : 0);
+  const avgScore = n > 0 ? total / n : 0;
+  const appearedAvgScore = vals.length > 0 ? total / vals.length : 0;
+
+  return {
+    avgScore,
+    avgPct: toPct(avgScore),
+    n,
+    appeared: vals.length,
+    absent,
+    appearedAvgScore,
+    appearedAvgPct: toPct(appearedAvgScore),
+    minScore: vals.length > 0 ? Math.min(...vals) : 0,
+    maxScore: vals.length > 0 ? Math.max(...vals) : 0,
+    onTrack: vals.filter((v) => toPct(v) >= 60).length,
+  };
 }
 
 export function studentTotalDisplay(st: StudentItem, subjects: SubjectItem[]): string {
@@ -94,6 +150,7 @@ export function studentTotalDisplay(st: StudentItem, subjects: SubjectItem[]): s
       max += sub.max;
       numericCount++;
     } else if (isAbsent(v)) {
+      max += sub.max;
       abCount++;
     } else if (isNA(v)) {
       naCount++;
@@ -186,33 +243,20 @@ export function computeInsights(exam: ExamItem): InsightsData | null {
   const passPct = validStudents.length > 0 ? (overallPassCount / validStudents.length) * 100 : 0;
 
   const subjStats: SubjectStat[] = subjects.map((sub) => {
-    // Only include students who took the exam and have numeric scores
-    const vals = validStudents
-      .map((st) => st.marks[sub.id])
-      .filter((v) => isNumericMark(v))
-      .map(Number);
-
-    if (vals.length === 0) {
-      return { sub, avgScore: 0, avgPct: 0, n: 0, onTrack: 0, needsSupport: 0, minScore: 0, maxScore: 0 };
-    }
-    const avgScore = mean(vals);
-    const pcts = vals.map((v) => (v / sub.max) * 100);
-    const onTrack = pcts.filter((p) => p >= 60).length;
+    const avg = subjectAverage(validStudents, sub);
     return {
       sub,
-      avgScore,
-      avgPct: mean(pcts),
-      n: vals.length,
-      onTrack,
-      needsSupport: pcts.length - onTrack,
-      minScore: Math.min(...vals),
-      maxScore: Math.max(...vals),
+      ...avg,
+      needsSupport: avg.n - avg.onTrack,
     };
   });
 
-  const sortedSubj = [...subjStats].sort((a, b) => a.avgPct - b.avgPct);
-  const weakest = sortedSubj[0] || { sub: subjects[0], avgScore: 0, avgPct: 0, n: 0, onTrack: 0, needsSupport: 0, minScore: 0, maxScore: 0 };
-  const strongest = sortedSubj[sortedSubj.length - 1] || weakest;
+  const rankedSubj = subjStats.filter((s) => s.n > 0);
+  const sortedSubj = [...(rankedSubj.length > 0 ? rankedSubj : subjStats)].sort(
+    (a, b) => a.avgPct - b.avgPct
+  );
+  const weakest = sortedSubj[0];
+  const strongest = sortedSubj[sortedSubj.length - 1];
 
   const distCounts: Record<number, number> = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 };
   overallPcts.forEach((p) => {

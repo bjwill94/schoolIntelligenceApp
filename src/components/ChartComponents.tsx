@@ -9,6 +9,7 @@ import {
   Legend,
   BarController,
   ChartData,
+  Plugin,
 } from 'chart.js';
 import { bandColorsHex, bandLabels, bandForMark, isAbsent, isNumericMark } from '../utils/stats';
 import { StudentItem, SubjectItem, SubjectStat } from '../types';
@@ -106,11 +107,44 @@ export const DistributionChart: React.FC<DistributionChartProps> = ({ distCounts
   return <canvas ref={canvasRef} className="w-full h-full" />;
 };
 
+// Draws each bar segment's count inside the segment when there is room for it
+const barValueLabelsPlugin: Plugin<'bar'> = {
+  id: 'barValueLabels',
+  afterDatasetsDraw(chart) {
+    const { ctx } = chart;
+    ctx.save();
+    ctx.font = "600 11px 'IBM Plex Mono', monospace";
+    ctx.fillStyle = '#FFFFFF';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    chart.data.datasets.forEach((dataset, di) => {
+      const meta = chart.getDatasetMeta(di);
+      if (meta.hidden) return;
+      meta.data.forEach((bar, i) => {
+        const value = Number(dataset.data[i]);
+        if (!value) return;
+        const { x, y, base } = bar.getProps(['x', 'y', 'base']) as {
+          x: number;
+          y: number;
+          base: number;
+        };
+        if (Math.abs(x - base) < 16) return;
+        ctx.fillText(String(value), (x + base) / 2, y);
+      });
+    });
+    ctx.restore();
+  },
+};
+
 interface OverviewChartProps {
   subjStats: SubjectStat[];
+  showValueLabels?: boolean;
 }
 
-export const OverviewChart: React.FC<OverviewChartProps> = ({ subjStats }) => {
+export const OverviewChart: React.FC<OverviewChartProps> = ({
+  subjStats,
+  showValueLabels = false,
+}) => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const chartInstance = useRef<ChartJS | null>(null);
 
@@ -135,17 +169,29 @@ export const OverviewChart: React.FC<OverviewChartProps> = ({ subjStats }) => {
         },
         {
           label: 'Needs support',
-          data: subjStats.map((s) => s.needsSupport),
+          data: subjStats.map((s) => s.needsSupport - s.absent),
           backgroundColor: '#D98A4E',
           stack: 's',
           borderRadius: 4,
         },
+        ...(subjStats.some((s) => s.absent > 0)
+          ? [
+              {
+                label: 'Absent',
+                data: subjStats.map((s) => s.absent),
+                backgroundColor: '#93A0AA',
+                stack: 's',
+                borderRadius: 4,
+              },
+            ]
+          : []),
       ],
     };
 
     chartInstance.current = new ChartJS(ctx, {
       type: 'bar',
       data,
+      plugins: showValueLabels ? [barValueLabelsPlugin] : [],
       options: {
         indexAxis: 'y',
         responsive: true,
@@ -194,7 +240,7 @@ export const OverviewChart: React.FC<OverviewChartProps> = ({ subjStats }) => {
         chartInstance.current = null;
       }
     };
-  }, [subjStats]);
+  }, [subjStats, showValueLabels]);
 
   return <canvas ref={canvasRef} className="w-full h-full" />;
 };

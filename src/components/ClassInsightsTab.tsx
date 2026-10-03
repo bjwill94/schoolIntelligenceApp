@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useCallback, useState } from 'react';
 import { ExamItem } from '../types';
 import {
   bandColors,
@@ -13,8 +13,9 @@ import {
   OverviewChart,
   DetailChart,
 } from './ChartComponents';
-import { ChevronRight } from 'lucide-react';
+import { ChevronRight, Maximize2 } from 'lucide-react';
 import { SubjectMultiSelect } from './SubjectMultiSelect';
+import { ChartModal } from './ChartModal';
 
 type GridSortType = 'roll' | 'pctDesc' | 'pctAsc';
 
@@ -23,6 +24,20 @@ const GRID_SORT_OPTIONS: { id: GridSortType; label: string }[] = [
   { id: 'pctDesc', label: 'Highest %' },
   { id: 'pctAsc', label: 'Lowest %' },
 ];
+
+type GlanceSortType = 'register' | 'support';
+
+const GLANCE_SORT_OPTIONS: { id: GlanceSortType; label: string }[] = [
+  { id: 'register', label: 'Register order' },
+  { id: 'support', label: 'Most needing support' },
+];
+
+const GLANCE_PREVIEW_COUNT = 7;
+const GLANCE_CARD_ROW_PX = 30;
+const GLANCE_MODAL_ROW_PX = 40;
+
+// Legend and axis need ~60px; never shrink below the original 220px card height
+const glanceChartHeight = (count: number, rowPx: number) => Math.max(220, count * rowPx + 60);
 
 interface ClassInsightsTabProps {
   exam: ExamItem;
@@ -42,6 +57,10 @@ export const ClassInsightsTab: React.FC<ClassInsightsTabProps> = ({
   const [isGridOpen, setIsGridOpen] = useState(false);
   const [attentionSubs, setAttentionSubs] = useState<string[]>([]);
   const [gridSort, setGridSort] = useState<GridSortType>('roll');
+  const [isGlanceOpen, setIsGlanceOpen] = useState(false);
+  const [glanceShowAll, setGlanceShowAll] = useState(false);
+  const [glanceSort, setGlanceSort] = useState<GlanceSortType>('register');
+  const closeGlance = useCallback(() => setIsGlanceOpen(false), []);
 
   if (!insights || insights.validStudents.length === 0) {
     return (
@@ -83,6 +102,14 @@ export const ClassInsightsTab: React.FC<ClassInsightsTabProps> = ({
       b.avgPct - a.avgPct ||
       a.sub.name.localeCompare(b.sub.name)
   );
+
+  const glanceCardStats = glanceShowAll ? subjStats : subjStats.slice(0, GLANCE_PREVIEW_COUNT);
+  const glanceModalStats =
+    glanceSort === 'register'
+      ? subjStats
+      : [...subjStats].sort(
+          (a, b) => b.needsSupport - a.needsSupport || a.sub.name.localeCompare(b.sub.name)
+        );
 
   const gridRows = validStudents
     .map((st) => ({ st, totals: studentTotals(st, subjects) }))
@@ -224,16 +251,99 @@ export const ClassInsightsTab: React.FC<ClassInsightsTabProps> = ({
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         {/* Subjects at a glance */}
         <div className="bg-white border border-[#DCE2DE] rounded-[10px] p-[18px] sm:p-5 shadow-xs flex flex-col">
-          <h3 className="font-serif-title text-[16px] font-semibold text-[#16232E] m-0 mb-1">
-            Subjects at a glance
-          </h3>
+          <div className="flex items-start justify-between gap-2 mb-1">
+            <h3 className="font-serif-title text-[16px] font-semibold text-[#16232E] m-0">
+              Subjects at a glance
+            </h3>
+            <button
+              type="button"
+              onClick={() => setIsGlanceOpen(true)}
+              title="Expand to see every subject clearly"
+              aria-label="Expand Subjects at a glance"
+              className="text-[#5B6B78] hover:text-[#16232E] hover:bg-[#F4F6F3] p-1.5 rounded-md transition-colors cursor-pointer"
+            >
+              <Maximize2 className="w-4 h-4" />
+            </button>
+          </div>
           <p className="text-[12px] text-[#5B6B78] m-0 mb-3.5">
             Share of students on track (60%+) vs. needing support, per subject.
           </p>
-          <div className="h-[220px] w-full relative">
-            <OverviewChart subjStats={subjStats} />
+          <div
+            className="w-full relative"
+            style={{ height: glanceChartHeight(glanceCardStats.length, GLANCE_CARD_ROW_PX) }}
+          >
+            <OverviewChart subjStats={glanceCardStats} />
           </div>
+          {subjStats.length > GLANCE_PREVIEW_COUNT && (
+            <button
+              type="button"
+              onClick={() => setGlanceShowAll((v) => !v)}
+              className="self-start mt-2 text-[12px] font-semibold text-[#B9852A] hover:text-[#16232E] underline cursor-pointer"
+            >
+              {glanceShowAll ? 'Show fewer' : `Show all ${subjStats.length} subjects`}
+            </button>
+          )}
         </div>
+
+        <ChartModal
+          isOpen={isGlanceOpen}
+          onClose={closeGlance}
+          title="Subjects at a glance"
+          subtitle="On track = 60% or more. Needs support = below 60%. Absent students are shown separately."
+          headerExtra={
+            <div className="inline-flex rounded-lg border-[1.5px] border-[#C3CCC7] overflow-hidden">
+              {GLANCE_SORT_OPTIONS.map((opt) => (
+                <button
+                  key={opt.id}
+                  type="button"
+                  onClick={() => setGlanceSort(opt.id)}
+                  aria-pressed={glanceSort === opt.id}
+                  className={`font-sans-body font-semibold text-[12px] px-2.5 py-1 cursor-pointer transition-colors border-l border-[#DCE2DE] first:border-l-0 ${
+                    glanceSort === opt.id
+                      ? 'bg-[#16232E] text-white'
+                      : 'bg-white text-[#5B6B78] hover:text-[#16232E]'
+                  }`}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+          }
+        >
+          <div
+            className="w-full relative"
+            style={{ height: glanceChartHeight(glanceModalStats.length, GLANCE_MODAL_ROW_PX) }}
+          >
+            <OverviewChart subjStats={glanceModalStats} showValueLabels />
+          </div>
+
+          <div className="overflow-x-auto mt-5 border border-[#DCE2DE] rounded-[10px]">
+            <table className="w-full min-w-[520px] border-collapse text-left text-[13px]">
+              <thead>
+                <tr className="border-b-2 border-[#16232E] bg-[#FAFBF9]">
+                  <th className="font-mono-tag text-[10.5px] uppercase text-[#5B6B78] py-2.5 px-3">Subject</th>
+                  <th className="font-mono-tag text-[10.5px] uppercase text-[#5B6B78] py-2.5 px-3 text-center">On track</th>
+                  <th className="font-mono-tag text-[10.5px] uppercase text-[#5B6B78] py-2.5 px-3 text-center">Needs support</th>
+                  <th className="font-mono-tag text-[10.5px] uppercase text-[#5B6B78] py-2.5 px-3 text-center">Absent</th>
+                  <th className="font-mono-tag text-[10.5px] uppercase text-[#5B6B78] py-2.5 px-3 text-right pr-3">Counted</th>
+                </tr>
+              </thead>
+              <tbody>
+                {glanceModalStats.map((st) => (
+                  <tr key={st.sub.id} className="border-b border-[#DCE2DE] last:border-b-0 hover:bg-[#FAFBF9]">
+                    <td className="py-2 px-3 font-semibold text-[#1C2B39]">{st.sub.name}</td>
+                    <td className="py-2 px-3 text-center font-mono-tag font-semibold text-[#3F7A5C]">{st.onTrack}</td>
+                    <td className="py-2 px-3 text-center font-mono-tag font-semibold text-[#B24A2C]">
+                      {st.needsSupport - st.absent}
+                    </td>
+                    <td className="py-2 px-3 text-center font-mono-tag text-[#5B6B78]">{st.absent || '—'}</td>
+                    <td className="py-2 px-3 text-right pr-3 font-mono-tag text-[#5B6B78]">{st.n}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </ChartModal>
 
         {/* Full breakdown for one subject */}
         <div className="bg-white border border-[#DCE2DE] rounded-[10px] p-[18px] sm:p-5 shadow-xs flex flex-col">

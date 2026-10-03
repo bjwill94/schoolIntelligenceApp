@@ -72,7 +72,8 @@ Each exam keeps its own copy of the roster and subjects. When you create a new e
 | `ExamScreen` | Exam header fields (name, date, class attendance %) and tab switching between the two tabs below. |
 | `EnterMarksTab` | The editable marks table. Add or remove students and subjects, rename them, and set max and pass marks per subject. Cells accept numbers, `AB`, or `NA`, and are colour-coded (red means below pass). Shows each student's total % and a class-average footer row. Can also import a sheet, which **replaces** the current exam's subjects and students. |
 | `ClassInsightsTab` | **The insights dashboard.** See section 5. |
-| `ChartComponents` | Three Chart.js bar charts: `DistributionChart` (overall bands), `OverviewChart` (on track vs. needs support per subject), and `DetailChart` (band split for one subject). |
+| `ChartComponents` | Three Chart.js bar charts: `DistributionChart` (overall bands), `OverviewChart` (on track vs. needs support vs. absent per subject, with optional count labels on the bars), and `DetailChart` (band split for one subject). |
+| `ChartModal` | Reusable large pop-out panel (rendered into `document.body`; closes with Esc, X, or a click outside). Currently used by "Subjects at a glance"; it can be reused for other charts. |
 | `SubjectMultiSelect` | Checkbox dropdown (an "All subjects" option plus a count per subject) used to filter the Needs attention list. |
 | `ExcelImportModal` | Upload by drag-and-drop or file picker (`.xlsx`, `.xls`, `.csv`, `.json`). Previews the detected subjects and first 5 students, and lets you rename subjects, change max marks, or drop a subject before confirming. |
 | `AuthModal` | Popup version of the login form. Currently **unused**: nothing ever opens it, and the header sends users to `LoginScreen` instead. |
@@ -103,7 +104,9 @@ Only **valid students** are counted: students with at least one mark entered (a 
 
 **Charts and tables**
 - **Whole-class distribution**: each student's overall % grouped into 5 bands.
-- **Subjects at a glance**: for each subject, how many students are on track (60% or more) vs. need support.
+- **Subjects at a glance**: for each subject, how many students are on track (60% or more), need support, or were absent (a grey segment, shown only when someone was absent).
+  - The chart grows by about 30 pixels per subject instead of squeezing into a fixed box. The card shows the first 7 subjects, with a **Show all N subjects** link.
+  - The **expand** icon (top right) opens a large panel. It has count labels on every bar, a **Register order / Most needing support** sort, and a table of on track, needs support, absent, and counted students. The sort is not saved.
 - **One-subject breakdown**: pick a subject from the dropdown to see its class average as one figure (`60.6 / 100 (61%)`), its range, its on-track count, and its band chart. An amber **Absent: N** chip appears only when someone was absent. Hovering over it shows the average of the students who appeared.
 - **Subject breakdown table**: **sorted from highest to lowest average %**. It uses % rather than raw marks, because subjects can have different maxima. Subjects with no marks go last. Columns: max, pass, **Appeared** (e.g. `14 / 15`, with an "AB" count underneath), class average and average % (AB counted as 0), **Avg (Appeared)** (the average of the students who sat the exam), highest and lowest (students who appeared only), and on-track count. Every other view keeps register order.
 - **Needs attention list**: each flagged student with tags such as `Maths (22/100)` or `English (Absent)`, sorted with the most issues first.

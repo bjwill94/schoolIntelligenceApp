@@ -30,11 +30,33 @@ const chartAnimationConfig = {
   easing: 'easeOutQuart' as const,
 };
 
-interface DistributionChartProps {
-  distCounts: Record<number, number>;
+// Print charts use a fixed canvas size: the print container may be off-screen or
+// hidden when the chart is created, so it can't be measured responsively.
+export interface PrintChartSize {
+  width: number;
+  height: number;
 }
 
-export const DistributionChart: React.FC<DistributionChartProps> = ({ distCounts }) => {
+const printChartOptions = (print?: PrintChartSize) =>
+  print
+    ? { responsive: false, animation: false as const, devicePixelRatio: 2 }
+    : { responsive: true, animation: chartAnimationConfig };
+
+const ChartCanvas = React.forwardRef<HTMLCanvasElement, { print?: PrintChartSize }>(
+  ({ print }, ref) =>
+    print ? (
+      <canvas ref={ref} width={print.width} height={print.height} />
+    ) : (
+      <canvas ref={ref} className="w-full h-full" />
+    )
+);
+
+interface DistributionChartProps {
+  distCounts: Record<number, number>;
+  print?: PrintChartSize;
+}
+
+export const DistributionChart: React.FC<DistributionChartProps> = ({ distCounts, print }) => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const chartInstance = useRef<ChartJS | null>(null);
 
@@ -63,10 +85,10 @@ export const DistributionChart: React.FC<DistributionChartProps> = ({ distCounts
     chartInstance.current = new ChartJS(ctx, {
       type: 'bar',
       data,
+      plugins: print ? [barValueLabelsPlugin] : [],
       options: {
-        responsive: true,
+        ...printChartOptions(print),
         maintainAspectRatio: false,
-        animation: chartAnimationConfig,
         plugins: {
           legend: { display: false },
           tooltip: {
@@ -102,9 +124,9 @@ export const DistributionChart: React.FC<DistributionChartProps> = ({ distCounts
         chartInstance.current = null;
       }
     };
-  }, [distCounts]);
+  }, [distCounts, print?.width, print?.height]);
 
-  return <canvas ref={canvasRef} className="w-full h-full" />;
+  return <ChartCanvas ref={canvasRef} print={print} />;
 };
 
 // Draws each bar segment's count inside the segment when there is room for it
@@ -117,6 +139,7 @@ const barValueLabelsPlugin: Plugin<'bar'> = {
     ctx.fillStyle = '#FFFFFF';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
+    const horizontal = chart.options.indexAxis === 'y';
     chart.data.datasets.forEach((dataset, di) => {
       const meta = chart.getDatasetMeta(di);
       if (meta.hidden) return;
@@ -128,8 +151,13 @@ const barValueLabelsPlugin: Plugin<'bar'> = {
           y: number;
           base: number;
         };
-        if (Math.abs(x - base) < 16) return;
-        ctx.fillText(String(value), (x + base) / 2, y);
+        if (horizontal) {
+          if (Math.abs(x - base) < 16) return;
+          ctx.fillText(String(value), (x + base) / 2, y);
+        } else {
+          if (Math.abs(base - y) < 16) return;
+          ctx.fillText(String(value), x, (y + base) / 2);
+        }
       });
     });
     ctx.restore();
@@ -139,11 +167,13 @@ const barValueLabelsPlugin: Plugin<'bar'> = {
 interface OverviewChartProps {
   subjStats: SubjectStat[];
   showValueLabels?: boolean;
+  print?: PrintChartSize;
 }
 
 export const OverviewChart: React.FC<OverviewChartProps> = ({
   subjStats,
   showValueLabels = false,
+  print,
 }) => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const chartInstance = useRef<ChartJS | null>(null);
@@ -191,12 +221,11 @@ export const OverviewChart: React.FC<OverviewChartProps> = ({
     chartInstance.current = new ChartJS(ctx, {
       type: 'bar',
       data,
-      plugins: showValueLabels ? [barValueLabelsPlugin] : [],
+      plugins: showValueLabels || print ? [barValueLabelsPlugin] : [],
       options: {
         indexAxis: 'y',
-        responsive: true,
+        ...printChartOptions(print),
         maintainAspectRatio: false,
-        animation: chartAnimationConfig,
         plugins: {
           legend: {
             position: 'bottom',
@@ -240,9 +269,9 @@ export const OverviewChart: React.FC<OverviewChartProps> = ({
         chartInstance.current = null;
       }
     };
-  }, [subjStats, showValueLabels]);
+  }, [subjStats, showValueLabels, print?.width, print?.height]);
 
-  return <canvas ref={canvasRef} className="w-full h-full" />;
+  return <ChartCanvas ref={canvasRef} print={print} />;
 };
 
 interface DetailChartProps {

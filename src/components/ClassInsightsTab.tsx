@@ -2,10 +2,8 @@ import React, { useCallback, useState } from 'react';
 import { ExamItem } from '../types';
 import {
   bandColors,
-  bandForMark,
   bandLabels,
   computeInsights,
-  overallBand,
   studentTotals,
 } from '../utils/stats';
 import {
@@ -13,9 +11,11 @@ import {
   OverviewChart,
   DetailChart,
 } from './ChartComponents';
-import { ChevronRight, Maximize2 } from 'lucide-react';
+import { ChevronRight, Maximize2, Printer } from 'lucide-react';
+import { ExportReportDialog } from './report/ExportReportDialog';
 import { SubjectMultiSelect } from './SubjectMultiSelect';
 import { ChartModal } from './ChartModal';
+import { MarkCellContent, PctPill } from './GridCells';
 
 type GridSortType = 'roll' | 'pctDesc' | 'pctAsc';
 
@@ -41,11 +41,13 @@ const glanceChartHeight = (count: number, rowPx: number) => Math.max(220, count 
 
 interface ClassInsightsTabProps {
   exam: ExamItem;
+  classLabel: string;
   onGoToEnterMarks: () => void;
 }
 
 export const ClassInsightsTab: React.FC<ClassInsightsTabProps> = ({
   exam,
+  classLabel,
   onGoToEnterMarks,
 }) => {
   const insights = computeInsights(exam);
@@ -61,6 +63,8 @@ export const ClassInsightsTab: React.FC<ClassInsightsTabProps> = ({
   const [glanceShowAll, setGlanceShowAll] = useState(false);
   const [glanceSort, setGlanceSort] = useState<GlanceSortType>('register');
   const closeGlance = useCallback(() => setIsGlanceOpen(false), []);
+  const [isExportOpen, setIsExportOpen] = useState(false);
+  const closeExport = useCallback(() => setIsExportOpen(false), []);
 
   if (!insights || insights.validStudents.length === 0) {
     return (
@@ -149,6 +153,38 @@ export const ClassInsightsTab: React.FC<ClassInsightsTabProps> = ({
 
   return (
     <div className="flex flex-col gap-5 animate-fade">
+      <div className="flex justify-end -mb-2">
+        <button
+          type="button"
+          onClick={() => setIsExportOpen(true)}
+          className="font-sans-body font-semibold text-[13px] px-3.5 py-1.5 rounded-lg border-[1.5px] border-[#C3CCC7] bg-white text-[#1C2B39] hover:border-[#16232E] cursor-pointer transition-all inline-flex items-center gap-1.5 shadow-xs"
+        >
+          <Printer className="w-4 h-4 text-[#5B6B78]" />
+          <span>Export report</span>
+        </button>
+      </div>
+
+      <ExportReportDialog
+        isOpen={isExportOpen}
+        onClose={closeExport}
+        classLabel={classLabel}
+        exam={exam}
+        insights={insights}
+        sortedSubjStats={sortedSubjStats}
+        attention={filteredAttention}
+        attentionFilterLabel={
+          isAttentionFiltered
+            ? subjects
+                .filter((s) => activeAttentionSubs.includes(s.id))
+                .map((s) => s.name)
+                .join(', ')
+            : null
+        }
+        gridRows={gridRows}
+        gridSortLabel={GRID_SORT_OPTIONS.find((o) => o.id === gridSort)?.label || 'Roll no.'}
+        gridClassAvgPct={gridClassAvgPct}
+      />
+
       {/* 5 Headline Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-[1px] bg-[#DCE2DE] border border-[#DCE2DE] rounded-[10px] overflow-hidden shadow-xs">
         {/* Weakest Subject */}
@@ -663,73 +699,11 @@ export const ClassInsightsTab: React.FC<ClassInsightsTabProps> = ({
                         </span>
                         {st.name}
                       </td>
-                      {subjects.map((sub) => {
-                        const v = st.marks[sub.id];
-                        if (v === '' || v === undefined || v === null) {
-                          return (
-                            <td key={sub.id} className="py-1 px-1.5 text-[#93A0AA] font-mono-tag text-xs">
-                              —
-                            </td>
-                          );
-                        }
-
-                        const sStr = String(v).trim().toUpperCase();
-                        if (sStr === 'AB' || sStr === 'ABSENT' || sStr === 'A') {
-                          return (
-                            <td key={sub.id} className="py-1 px-1.5">
-                              <span
-                                className="inline-flex items-center justify-center w-[40px] h-[26px] rounded-[6px] font-mono-tag text-[11px] font-bold text-[#B9852A] bg-[#FBEED3] border border-[#E2A93B] shadow-xs"
-                                title="Absent"
-                              >
-                                AB
-                              </span>
-                            </td>
-                          );
-                        }
-
-                        if (sStr === 'NA' || sStr === 'N/A' || sStr === '-') {
-                          return (
-                            <td key={sub.id} className="py-1 px-1.5">
-                              <span
-                                className="inline-flex items-center justify-center w-[40px] h-[26px] rounded-[6px] font-mono-tag text-[11px] font-bold text-[#5B6B78] bg-[#EEF0EE] border border-[#DCE2DE] shadow-xs"
-                                title="Not applicable / Optional"
-                              >
-                                NA
-                              </span>
-                            </td>
-                          );
-                        }
-
-                        const num = Number(v);
-                        if (isNaN(num)) {
-                          return (
-                            <td key={sub.id} className="py-1 px-1.5 text-[#93A0AA] font-mono-tag text-xs">
-                              —
-                            </td>
-                          );
-                        }
-
-                        const b = bandForMark(num, sub);
-                        const isBelow = num < sub.pass;
-
-                        return (
-                          <td key={sub.id} className="py-1 px-1.5">
-                            <span
-                              className="relative inline-flex items-center justify-center w-[40px] h-[26px] rounded-[6px] font-mono-tag text-[11.5px] font-semibold text-white shadow-xs"
-                              style={{ backgroundColor: bandColors[b] }}
-                              title={`${bandLabels[b]} (${num}/${sub.max})`}
-                            >
-                              {num}
-                              {isBelow && (
-                                <span
-                                  className="absolute -top-0.5 -right-0.5 w-[7px] h-[7px] rounded-full bg-[#E2A93B] border-[1.5px] border-white"
-                                  title="Below passing mark"
-                                />
-                              )}
-                            </span>
-                          </td>
-                        );
-                      })}
+                      {subjects.map((sub) => (
+                        <td key={sub.id} className="py-1 px-1.5">
+                          <MarkCellContent value={st.marks[sub.id]} sub={sub} />
+                        </td>
+                      ))}
                       <td className="py-1 px-1.5 font-mono-tag text-[12px] text-[#16232E] whitespace-nowrap border-l border-[#DCE2DE]">
                         {totals.pct !== null ? (
                           <>
@@ -741,17 +715,7 @@ export const ClassInsightsTab: React.FC<ClassInsightsTabProps> = ({
                         )}
                       </td>
                       <td className="py-1 px-1.5">
-                        {totals.pct !== null ? (
-                          <span
-                            className="inline-flex items-center justify-center min-w-[46px] h-[26px] px-1.5 rounded-[6px] font-mono-tag text-[11.5px] font-semibold text-white shadow-xs"
-                            style={{ backgroundColor: bandColors[overallBand(totals.pct)] }}
-                            title={bandLabels[overallBand(totals.pct)]}
-                          >
-                            {totals.pct.toFixed(0)}%
-                          </span>
-                        ) : (
-                          <span className="text-[#93A0AA] font-mono-tag text-xs">—</span>
-                        )}
+                        <PctPill pct={totals.pct} />
                       </td>
                     </tr>
                   ))}

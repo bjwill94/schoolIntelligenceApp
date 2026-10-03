@@ -69,3 +69,74 @@ body {
 ::-webkit-scrollbar-thumb:hover {
   background: #aab5af;
 }
+
+/* Export report: #print-root holds the report only while printing. It stays laid out
+   off-screen so its charts have real dimensions before the print dialog opens. */
+#print-root {
+  position: absolute;
+  left: -10000px;
+  top: 0;
+  width: 186mm;
+}
+
+@page {
+  size: A4 portrait;
+  margin: 12mm 12mm 16mm;
+
+  @bottom-left {
+    content: 'For staff use only. Contains student performance data.';
+    font-family: 'IBM Plex Sans', sans-serif;
+    font-size: 8pt;
+    color: #93a0aa;
+  }
+
+  @bottom-right {
+    content: 'Page ' counter(page) ' of ' counter(pages);
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 8pt;
+    color: #93a0aa;
+  }
+}
+
+@page landscape {
+  size: A4 landscape;
+}
+
+@media print {
+  body.printing-report {
+    background: #ffffff;
+    overflow: visible !important;
+  }
+
+  body.printing-report > *:not(#print-root) {
+    display: none !important;
+  }
+
+  body.printing-report #print-root {
+    position: static;
+    width: auto;
+  }
+
+  #print-root,
+  #print-root * {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  #print-root .report-section {
+    break-inside: avoid;
+  }
+
+  #print-root .report-landscape {
+    page: landscape;
+    break-before: page;
+  }
+
+  #print-root thead {
+    display: table-header-group;
+  }
+
+  #print-root tr {
+    break-inside: avoid;
+  }
+}

@@ -60,7 +60,7 @@ Each exam keeps its own copy of the roster and subjects. When you create a new e
 |---|---|
 | `src/main.tsx` | React entry point. |
 | `src/App.tsx` | **The brain.** Holds all app state (classes, current screen, selected class and exam, user, sync status). Defines every create, update, and delete handler and handles saving to localStorage and Supabase. |
-| `src/index.css` | Tailwind import, fonts, and the fade animation. |
+| `src/index.css` | Tailwind import, fonts, and the print rules for the exported report (`#print-root`, A4 `@page` with a staff-only footer and page numbers, landscape named page). |
 
 ### Screens and Components (`src/components/`)
 | Component | What it does |
@@ -74,6 +74,9 @@ Each exam keeps its own copy of the roster and subjects. When you create a new e
 | `ClassInsightsTab` | **The insights dashboard.** See section 5. |
 | `ChartComponents` | Three Chart.js bar charts: `DistributionChart` (overall bands), `OverviewChart` (on track vs. needs support vs. absent per subject, with optional count labels on the bars), and `DetailChart` (band split for one subject). |
 | `ChartModal` | Reusable large pop-out panel (rendered into `document.body`; closes with Esc, X, or a click outside). Currently used by "Subjects at a glance"; it can be reused for other charts. |
+| `GridCells` | `MarkCellContent` (band-coloured mark / AB / NA chip) and `PctPill` (overall % chip), shared by the class grid on screen and in the printed report. |
+| `report/ExportReportDialog` | The "Export report" dialog: school name, prepared by, section checkboxes, a show-names toggle, and a live preview. Its **Print / Save as PDF** button renders the report into `#print-root` and calls `window.print()`. Preferences are saved under `school_register_report_prefs_v1`. |
+| `report/PrintReport` | The A4 report document (header, summary, distribution, subjects at a glance, breakdown table, needs attention, landscape class grid, sign-off lines). |
 | `SubjectMultiSelect` | Checkbox dropdown (an "All subjects" option plus a count per subject) used to filter the Needs attention list. |
 | `ExcelImportModal` | Upload by drag-and-drop or file picker (`.xlsx`, `.xls`, `.csv`, `.json`). Previews the detected subjects and first 5 students, and lets you rename subjects, change max marks, or drop a subject before confirming. |
 | `AuthModal` | Popup version of the login form. Currently **unused**: nothing ever opens it, and the header sends users to `LoginScreen` instead. |
@@ -115,6 +118,20 @@ Only **valid students** are counted: students with at least one mark entered (a 
   - **Total** (e.g. `232 / 400`) and **%** columns use `studentTotals()`, with AB counted as 0 and NA excluded. Because NA is excluded, the maximum can differ between students. The footer therefore shows only the class average %, not a total.
   - **Sort**: Roll no. (the default), Highest %, or Lowest %. It sorts by %, not raw total, so students with NA subjects are compared fairly. Ties are broken by roll number. The sort is not saved.
   - There is deliberately **no rank column**, in line with the NEP 2020 / CBSE move away from publicly ranking students. "Lowest %" is the view for deciding who to help first.
+
+**Export report** (button at the top right of the tab)
+- Opens a dialog with these options:
+  - **School name** and **Prepared by**. Both are remembered on this device.
+  - Checkboxes for **Summary**, **Class distribution**, **Subjects at a glance**, **Subject breakdown table**, **Needs attention**, and **Full class grid**.
+  - **Show student names**. When it's off, students appear as "Roll 07".
+- A live preview shows exactly what will print.
+- The report **follows the screen**: the Needs attention filter (named in the heading), the grid sort, and the highest-to-lowest breakdown order.
+- **Print / Save as PDF** uses the browser's print dialog, so no PDF library is needed.
+  - Pages are A4 portrait. The full class grid gets its own landscape page.
+  - Every page has a "For staff use only" footer and "Page X of Y".
+  - The last page has Prepared by, Signature and Date lines.
+- If band colours are missing on paper, turn on **Background graphics** in the print dialog.
+- Charts are drawn at a fixed size with no animation, through the `print` prop on `DistributionChart` and `OverviewChart`.
 
 **Performance bands**
 

@@ -12,6 +12,7 @@ interface ExamScreenProps {
 }
 
 export const ExamScreen: React.FC<ExamScreenProps> = ({
+  currentClass,
   currentExam,
   activeTab,
   onTabChange,
@@ -116,6 +117,7 @@ export const ExamScreen: React.FC<ExamScreenProps> = ({
       ) : (
         <ClassInsightsTab
           exam={currentExam}
+          classLabel={`Grade ${currentClass.grade} · Section ${currentClass.section}`}
           onGoToEnterMarks={() => onTabChange('entry')}
         />
       )}

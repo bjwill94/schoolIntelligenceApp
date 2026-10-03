@@ -6,56 +6,194 @@ import { HomeScreen } from './components/HomeScreen';
 import { ClassScreen } from './components/ClassScreen';
 import { ExamScreen } from './components/ExamScreen';
 import { LoginScreen } from './components/LoginScreen';
-import { AuthModal } from './components/AuthModal';
 import { supabase, isSupabaseConfigured } from './lib/supabase';
 import {
-  loadClassesForUser,
-  syncClassToSupabase,
-  syncAllClassesToSupabase,
-  deleteClassFromSupabase,
+  loadAllClasses,
+  fetchClass,
+  insertClass,
+  updateClass,
+  deleteClass,
 } from './services/dbService';
+import { AlertTriangle, X } from 'lucide-react';
+
+const SAVE_DEBOUNCE_MS = 600;
+
+const classLabel = (cls: ClassItem) => `Grade ${cls.grade} · Section ${cls.section}`;
 
 export default function App() {
   const [classes, setClasses] = useState<ClassItem[]>(getInitialData);
-  // Default to login screen so users can sign in to their Supabase account
   const [screen, setScreen] = useState<ScreenType>('login');
   const [currentClassId, setCurrentClassId] = useState<string | null>(null);
   const [currentExamId, setCurrentExamId] = useState<string | null>(null);
   const [examTab, setExamTab] = useState<ExamTabType>('entry');
 
-  // Supabase Auth and Sync state
   const [user, setUser] = useState<any | null>(null);
-  const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
   const [syncState, setSyncState] = useState<'idle' | 'syncing' | 'saved' | 'error'>('saved');
-  const [authChecked, setAuthChecked] = useState(false);
-  const isInitialLoadRef = useRef(true);
+  const [notice, setNotice] = useState<string | null>(null);
 
-  // Check initial Supabase session on app launch
-  useEffect(() => {
-    if (!isSupabaseConfigured) {
-      setAuthChecked(true);
+  // Refs let async save callbacks see the latest state without stale closures.
+  const classesRef = useRef<ClassItem[]>(classes);
+  const userRef = useRef<any | null>(null);
+  const versionsRef = useRef(new Map<string, string>());
+  const saveTimersRef = useRef(new Map<string, ReturnType<typeof setTimeout>>());
+  const inFlightRef = useRef(new Set<string>());
+  const dirtyRef = useRef(new Set<string>());
+  const deletedRef = useRef(new Set<string>());
+  const lastSaveFailedRef = useRef(false);
+
+  const commitClasses = (next: ClassItem[]) => {
+    classesRef.current = next;
+    setClasses(next);
+  };
+
+  const hasPendingSaves = () => saveTimersRef.current.size > 0 || inFlightRef.current.size > 0;
+
+  const resetSyncTracking = () => {
+    saveTimersRef.current.forEach((t) => clearTimeout(t));
+    saveTimersRef.current.clear();
+    inFlightRef.current.clear();
+    dirtyRef.current.clear();
+    deletedRef.current.clear();
+    versionsRef.current.clear();
+    lastSaveFailedRef.current = false;
+  };
+
+  const settleSyncState = () => {
+    if (hasPendingSaves()) return;
+    setSyncState(lastSaveFailedRef.current ? 'error' : 'saved');
+  };
+
+  const loadSharedClasses = async () => {
+    setSyncState('syncing');
+    try {
+      const records = await loadAllClasses();
+      if (!userRef.current || hasPendingSaves()) return;
+      versionsRef.current = new Map(records.map((r) => [r.cls.id, r.version]));
+      commitClasses(records.map((r) => r.cls));
+      lastSaveFailedRef.current = false;
+    } catch (err) {
+      console.error('Failed to load classes:', err);
+      lastSaveFailedRef.current = true;
+    }
+    settleSyncState();
+  };
+
+  const handleSaveConflict = async (classId: string) => {
+    try {
+      const latest = await fetchClass(classId);
+      const local = classesRef.current.find((c) => c.id === classId);
+      const label = local ? classLabel(local) : 'This class';
+      if (!latest) {
+        versionsRef.current.delete(classId);
+        commitClasses(classesRef.current.filter((c) => c.id !== classId));
+        setNotice(`${label} was deleted by another staff member.`);
+        return;
+      }
+      versionsRef.current.set(classId, latest.version);
+      commitClasses(classesRef.current.map((c) => (c.id === classId ? latest.cls : c)));
+      setNotice(
+        `${label} was changed by another staff member at the same time. Their version has been loaded, and your most recent change was not saved. Please check it and re-enter it if needed.`
+      );
+    } catch (err) {
+      console.error('Failed to reload class after conflict:', err);
+      lastSaveFailedRef.current = true;
+    }
+  };
+
+  const flushSave = async (classId: string) => {
+    if (inFlightRef.current.has(classId)) {
+      dirtyRef.current.add(classId);
+      return;
+    }
+    const signedInUser = userRef.current;
+    const cls = classesRef.current.find((c) => c.id === classId);
+    if (!signedInUser || !cls || deletedRef.current.has(classId)) {
+      settleSyncState();
       return;
     }
 
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      if (session?.user) {
-        setUser(session.user);
-        handleUserSignedIn(session.user);
-        setScreen('home');
+    inFlightRef.current.add(classId);
+    const version = versionsRef.current.get(classId);
+    const result = version ? await updateClass(cls, version) : await insertClass(cls);
+    inFlightRef.current.delete(classId);
+
+    if (userRef.current?.id !== signedInUser.id) return;
+
+    if (result.status === 'saved') {
+      versionsRef.current.set(classId, result.version);
+      lastSaveFailedRef.current = false;
+      if (deletedRef.current.has(classId)) {
+        await deleteClass(classId);
       }
-      setAuthChecked(true);
-    });
+    } else if (result.status === 'conflict') {
+      dirtyRef.current.delete(classId);
+      await handleSaveConflict(classId);
+    } else {
+      lastSaveFailedRef.current = true;
+    }
+
+    if (dirtyRef.current.has(classId)) {
+      dirtyRef.current.delete(classId);
+      void flushSave(classId);
+      return;
+    }
+    settleSyncState();
+  };
+
+  const scheduleSave = (classId: string, delay = SAVE_DEBOUNCE_MS) => {
+    if (!userRef.current || !isSupabaseConfigured) return;
+    const existing = saveTimersRef.current.get(classId);
+    if (existing) clearTimeout(existing);
+    setSyncState('syncing');
+    saveTimersRef.current.set(
+      classId,
+      setTimeout(() => {
+        saveTimersRef.current.delete(classId);
+        void flushSave(classId);
+      }, delay)
+    );
+  };
+
+  const resetToGuest = () => {
+    resetSyncTracking();
+    userRef.current = null;
+    setUser(null);
+    commitClasses(getInitialData());
+    setScreen('login');
+    setCurrentClassId(null);
+    setCurrentExamId(null);
+    setNotice(null);
+    setSyncState('saved');
+  };
+
+  useEffect(() => {
+    if (!isSupabaseConfigured) return;
 
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange(async (_event, session) => {
-      if (session?.user) {
-        setUser(session.user);
-        handleUserSignedIn(session.user);
-        setScreen((prev) => (prev === 'login' ? 'home' : prev));
-      } else {
-        setUser(null);
+    } = supabase.auth.onAuthStateChange((_event, session) => {
+      const nextUser = session?.user ?? null;
+      const prevUser = userRef.current;
+
+      if (nextUser && prevUser?.id === nextUser.id) {
+        // Token refresh or profile update: same person, keep their in-progress state.
+        userRef.current = nextUser;
+        setUser(nextUser);
+        return;
       }
+
+      if (!nextUser) {
+        if (prevUser) resetToGuest();
+        return;
+      }
+
+      resetSyncTracking();
+      userRef.current = nextUser;
+      setUser(nextUser);
+      commitClasses([]);
+      setScreen((prev) => (prev === 'login' ? 'home' : prev));
+      // Supabase warns against awaiting its own calls inside this callback.
+      setTimeout(() => void loadSharedClasses(), 0);
     });
 
     return () => {
@@ -63,52 +201,42 @@ export default function App() {
     };
   }, []);
 
-  // When a user signs in, load their classes from Supabase
-  const handleUserSignedIn = async (signedInUser: any) => {
-    setSyncState('syncing');
-    try {
-      const userClasses = await loadClassesForUser(signedInUser.id);
-      setClasses(userClasses);
-      setSyncState('saved');
-    } catch (err) {
-      console.error('Failed to load user classes:', err);
-      setSyncState('error');
-    }
-  };
+  // Pick up other staff members' changes when the teacher comes back to the tab.
+  useEffect(() => {
+    if (!user) return;
+    const refresh = () => {
+      if (document.visibilityState === 'visible' && !hasPendingSaves()) {
+        void loadSharedClasses();
+      }
+    };
+    window.addEventListener('focus', refresh);
+    document.addEventListener('visibilitychange', refresh);
+    return () => {
+      window.removeEventListener('focus', refresh);
+      document.removeEventListener('visibilitychange', refresh);
+    };
+  }, [user]);
+
+  // Only guest data lives on the device; shared school data stays in the cloud.
+  useEffect(() => {
+    if (!user) saveClassesData(classes);
+  }, [classes, user]);
 
   const handleSignOut = async () => {
     if (isSupabaseConfigured) {
       await supabase.auth.signOut();
     }
-    setUser(null);
-    setClasses(getInitialData());
-    setScreen('login');
-    setCurrentClassId(null);
-    setCurrentExamId(null);
+    resetToGuest();
   };
-
-  // Sync to localStorage and Supabase whenever classes update
-  useEffect(() => {
-    saveClassesData(classes);
-
-    if (isInitialLoadRef.current) {
-      isInitialLoadRef.current = false;
-      return;
-    }
-
-    if (user && isSupabaseConfigured) {
-      setSyncState('syncing');
-      const debounceTimer = setTimeout(async () => {
-        const success = await syncAllClassesToSupabase(user.id, classes);
-        setSyncState(success ? 'saved' : 'error');
-      }, 600);
-
-      return () => clearTimeout(debounceTimer);
-    }
-  }, [classes, user]);
 
   const currentClass = classes.find((c) => c.id === currentClassId) || null;
   const currentExam = currentClass?.exams.find((e) => e.id === currentExamId) || null;
+
+  // A refresh or conflict can remove the class or exam that is open on screen.
+  useEffect(() => {
+    if (screen === 'class' && !currentClass) setScreen('home');
+    if (screen === 'exam' && !currentExam) setScreen(currentClass ? 'class' : 'home');
+  }, [screen, currentClass, currentExam]);
 
   // Navigation handlers
   const handleGoHome = () => {
@@ -127,28 +255,21 @@ export default function App() {
     setScreen('exam');
   };
 
-  const handleCreateClass = async (grade: string, section: string) => {
+  const handleCreateClass = (grade: string, section: string) => {
     const newClass: ClassItem = {
       id: generateId('c'),
       grade,
       section,
       exams: [],
     };
-    const updated = [...classes, newClass];
-    setClasses(updated);
+    commitClasses([...classesRef.current, newClass]);
     setCurrentClassId(newClass.id);
     setScreen('class');
-
-    // Immediate Supabase sync
-    if (user && isSupabaseConfigured) {
-      setSyncState('syncing');
-      const success = await syncClassToSupabase(user.id, newClass);
-      setSyncState(success ? 'saved' : 'error');
-    }
+    scheduleSave(newClass.id, 0);
   };
 
-  const handleCreateExam = async (classId: string, name: string, dateLabel: string) => {
-    const cls = classes.find((c) => c.id === classId);
+  const handleCreateExam = (classId: string, name: string, dateLabel: string) => {
+    const cls = classesRef.current.find((c) => c.id === classId);
     if (!cls) return;
 
     let subjects: SubjectItem[] = [];
@@ -187,29 +308,18 @@ export default function App() {
       updatedLabel: 'Updated just now',
     };
 
-    const updatedClasses = classes.map((c) =>
-      c.id === classId ? { ...c, exams: [...c.exams, newExam] } : c
+    commitClasses(
+      classesRef.current.map((c) => (c.id === classId ? { ...c, exams: [...c.exams, newExam] } : c))
     );
-
-    setClasses(updatedClasses);
     setCurrentClassId(classId);
     setCurrentExamId(newExam.id);
     setExamTab('entry');
     setScreen('exam');
-
-    // Immediate Supabase sync
-    if (user && isSupabaseConfigured) {
-      setSyncState('syncing');
-      const targetClass = updatedClasses.find((c) => c.id === classId);
-      if (targetClass) {
-        const success = await syncClassToSupabase(user.id, targetClass);
-        setSyncState(success ? 'saved' : 'error');
-      }
-    }
+    scheduleSave(classId, 0);
   };
 
   // EXCEL / CSV / JSON IMPORT HANDLER: Stored directly into the Class and Supabase
-  const handleCreateExamWithData = async (
+  const handleCreateExamWithData = (
     classId: string,
     name: string,
     dateLabel: string,
@@ -226,91 +336,64 @@ export default function App() {
       updatedLabel: 'Imported just now',
     };
 
-    const updatedClasses = classes.map((c) =>
-      c.id === classId ? { ...c, exams: [...c.exams, newExam] } : c
+    commitClasses(
+      classesRef.current.map((c) => (c.id === classId ? { ...c, exams: [...c.exams, newExam] } : c))
     );
-
-    setClasses(updatedClasses);
     setCurrentClassId(classId);
     setCurrentExamId(newExam.id);
     setExamTab('entry');
     setScreen('exam');
-
-    // Persist immediately to Supabase
-    if (user && isSupabaseConfigured) {
-      setSyncState('syncing');
-      const targetClass = updatedClasses.find((c) => c.id === classId);
-      if (targetClass) {
-        const success = await syncClassToSupabase(user.id, targetClass);
-        setSyncState(success ? 'saved' : 'error');
-      }
-    }
+    scheduleSave(classId, 0);
   };
 
-  const handleDeleteExam = async (classId: string, examId: string) => {
-    const updatedClasses = classes.map((c) => {
-      if (c.id === classId) {
-        return {
-          ...c,
-          exams: c.exams.filter((e) => e.id !== examId),
-        };
-      }
-      return c;
-    });
-
-    setClasses(updatedClasses);
+  const handleDeleteExam = (classId: string, examId: string) => {
+    commitClasses(
+      classesRef.current.map((c) =>
+        c.id === classId ? { ...c, exams: c.exams.filter((e) => e.id !== examId) } : c
+      )
+    );
     if (currentExamId === examId) {
       setScreen('class');
     }
-
-    if (user && isSupabaseConfigured) {
-      setSyncState('syncing');
-      const targetClass = updatedClasses.find((c) => c.id === classId);
-      if (targetClass) {
-        const success = await syncClassToSupabase(user.id, targetClass);
-        setSyncState(success ? 'saved' : 'error');
-      }
-    }
+    scheduleSave(classId, 0);
   };
 
   const handleDeleteClass = async (classId: string) => {
-    if (user && isSupabaseConfigured) {
-      await deleteClassFromSupabase(user.id, classId);
-    }
-    const updatedClasses = classes.filter((c) => c.id !== classId);
-    setClasses(updatedClasses);
+    commitClasses(classesRef.current.filter((c) => c.id !== classId));
     setScreen('home');
+
+    if (!userRef.current || !isSupabaseConfigured) return;
+    const timer = saveTimersRef.current.get(classId);
+    if (timer) clearTimeout(timer);
+    saveTimersRef.current.delete(classId);
+    dirtyRef.current.delete(classId);
+    deletedRef.current.add(classId);
+    versionsRef.current.delete(classId);
+
+    // An in-flight save will delete the row itself once it lands.
+    if (inFlightRef.current.has(classId)) return;
+    setSyncState('syncing');
+    const ok = await deleteClass(classId);
+    if (!ok) lastSaveFailedRef.current = true;
+    settleSyncState();
   };
 
-  const handleUpdateExam = async (updatedExam: ExamItem) => {
+  const handleUpdateExam = (updatedExam: ExamItem) => {
     if (!currentClassId) return;
-    const updatedClasses = classes.map((c) => {
-      if (c.id === currentClassId) {
-        return {
-          ...c,
-          exams: c.exams.map((e) => (e.id === updatedExam.id ? updatedExam : e)),
-        };
-      }
-      return c;
-    });
-
-    setClasses(updatedClasses);
-
-    // Immediate Supabase sync for marks update
-    if (user && isSupabaseConfigured) {
-      setSyncState('syncing');
-      const targetClass = updatedClasses.find((c) => c.id === currentClassId);
-      if (targetClass) {
-        const success = await syncClassToSupabase(user.id, targetClass);
-        setSyncState(success ? 'saved' : 'error');
-      }
-    }
+    commitClasses(
+      classesRef.current.map((c) =>
+        c.id === currentClassId
+          ? { ...c, exams: c.exams.map((e) => (e.id === updatedExam.id ? updatedExam : e)) }
+          : c
+      )
+    );
+    scheduleSave(currentClassId);
   };
 
   const handleResetDemo = () => {
+    if (user) return;
     if (window.confirm('Reset all classes and exams to default sample demo data?')) {
-      const demo = createDemoSeedData();
-      setClasses(demo);
+      commitClasses(createDemoSeedData());
       setScreen('home');
       setCurrentClassId(null);
       setCurrentExamId(null);
@@ -332,12 +415,24 @@ export default function App() {
         syncState={syncState}
       />
 
+      {notice && screen !== 'login' && (
+        <div className="mb-5 p-3 bg-amber-50 border border-amber-200 text-amber-900 text-xs rounded-lg flex items-start gap-2">
+          <AlertTriangle className="w-4 h-4 text-amber-700 shrink-0 mt-0.5" />
+          <span className="flex-1">{notice}</span>
+          <button
+            onClick={() => setNotice(null)}
+            title="Dismiss"
+            className="p-0.5 text-amber-700 hover:text-amber-900 rounded cursor-pointer"
+          >
+            <X className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      )}
+
       <main>
         {screen === 'login' && (
           <LoginScreen
-            onLoginSuccess={(authedUser) => {
-              setUser(authedUser);
-              handleUserSignedIn(authedUser);
+            onLoginSuccess={() => {
               setScreen('home');
             }}
             onContinueGuest={() => {
@@ -375,15 +470,6 @@ export default function App() {
           />
         )}
       </main>
-
-      <AuthModal
-        isOpen={isAuthModalOpen}
-        onClose={() => setIsAuthModalOpen(false)}
-        onAuthSuccess={(authedUser) => {
-          setUser(authedUser);
-          handleUserSignedIn(authedUser);
-        }}
-      />
     </div>
   );
 }

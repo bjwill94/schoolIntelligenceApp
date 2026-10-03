@@ -1,134 +1,107 @@
-import { supabase, isSupabaseConfigured } from '../lib/supabase';
+import { supabase } from '../lib/supabase';
 import { ClassItem } from '../types';
-import { createDemoSeedData, getInitialData, saveClassesData } from '../data/seed';
-
-export interface DbSyncStatus {
-  state: 'idle' | 'syncing' | 'saved' | 'error';
-  lastSyncedAt?: Date;
-  error?: string;
-}
 
 /**
- * Loads classes for a given user.
- * If Supabase is not configured or user is null, falls back to localStorage.
+ * All signed-in staff share one set of classes. Each row's `updated_at` (set by a
+ * database trigger) acts as a version token: an update only succeeds if the row
+ * hasn't changed since we loaded it, so one teacher can't silently overwrite
+ * another teacher's edits.
  */
-export async function loadClassesForUser(userId?: string | null): Promise<ClassItem[]> {
-  if (!isSupabaseConfigured || !userId) {
-    return getInitialData();
-  }
+export interface ClassRecord {
+  cls: ClassItem;
+  version: string;
+}
 
-  try {
-    const { data, error } = await supabase
-      .from('user_classes')
-      .select('*')
-      .eq('user_id', userId)
-      .order('created_at', { ascending: true });
+export type SaveResult =
+  | { status: 'saved'; version: string }
+  | { status: 'conflict' }
+  | { status: 'error' };
 
-    if (error) {
-      console.error('Error fetching classes from Supabase:', error);
-      return getInitialData();
-    }
+const TABLE = 'classes';
+const COLUMNS = 'id, grade, section, exams, updated_at';
 
-    if (!data || data.length === 0) {
-      // New user starts with clean slate without pre-seeded mock records
-      return [];
-    }
-
-    // Map database rows back to ClassItem
-    return data.map((row: any) => ({
+function rowToRecord(row: any): ClassRecord {
+  return {
+    cls: {
       id: row.id,
       grade: row.grade,
       section: row.section,
       exams: Array.isArray(row.exams) ? row.exams : [],
-    }));
+    },
+    version: row.updated_at,
+  };
+}
+
+/** Loads every class in the school. Throws on failure so callers never fall back to local data. */
+export async function loadAllClasses(): Promise<ClassRecord[]> {
+  const { data, error } = await supabase
+    .from(TABLE)
+    .select(COLUMNS)
+    .order('created_at', { ascending: true });
+
+  if (error) throw error;
+  return (data || []).map(rowToRecord);
+}
+
+/** Returns the latest copy of one class, or null if it no longer exists. */
+export async function fetchClass(classId: string): Promise<ClassRecord | null> {
+  const { data, error } = await supabase.from(TABLE).select(COLUMNS).eq('id', classId).maybeSingle();
+
+  if (error) throw error;
+  return data ? rowToRecord(data) : null;
+}
+
+export async function insertClass(cls: ClassItem): Promise<SaveResult> {
+  try {
+    const { data, error } = await supabase
+      .from(TABLE)
+      .insert({ id: cls.id, grade: cls.grade, section: cls.section, exams: cls.exams })
+      .select('updated_at')
+      .single();
+
+    if (error) {
+      console.error('Error inserting class:', error);
+      return { status: 'error' };
+    }
+    return { status: 'saved', version: data.updated_at };
   } catch (err) {
-    console.error('Database connection error in loadClassesForUser:', err);
-    return getInitialData();
+    console.error('Exception in insertClass:', err);
+    return { status: 'error' };
   }
 }
 
-/**
- * Saves a single class to Supabase (upsert)
- */
-export async function syncClassToSupabase(userId: string, cls: ClassItem): Promise<boolean> {
-  if (!isSupabaseConfigured || !userId) return false;
-
+/** Updates a class only if it still has the version we last saw. */
+export async function updateClass(cls: ClassItem, expectedVersion: string): Promise<SaveResult> {
   try {
-    const { error } = await supabase.from('user_classes').upsert({
-      id: cls.id,
-      user_id: userId,
-      grade: cls.grade,
-      section: cls.section,
-      exams: cls.exams,
-      updated_at: new Date().toISOString(),
-    });
+    const { data, error } = await supabase
+      .from(TABLE)
+      .update({ grade: cls.grade, section: cls.section, exams: cls.exams })
+      .eq('id', cls.id)
+      .eq('updated_at', expectedVersion)
+      .select('updated_at');
 
     if (error) {
-      console.error('Error upserting class to Supabase:', error);
+      console.error('Error updating class:', error);
+      return { status: 'error' };
+    }
+    if (!data || data.length === 0) return { status: 'conflict' };
+    return { status: 'saved', version: data[0].updated_at };
+  } catch (err) {
+    console.error('Exception in updateClass:', err);
+    return { status: 'error' };
+  }
+}
+
+export async function deleteClass(classId: string): Promise<boolean> {
+  try {
+    const { error } = await supabase.from(TABLE).delete().eq('id', classId);
+    if (error) {
+      console.error('Error deleting class:', error);
       return false;
     }
     return true;
   } catch (err) {
-    console.error('Exception in syncClassToSupabase:', err);
-    return false;
-  }
-}
-
-/**
- * Saves all classes to Supabase (batch upsert)
- */
-export async function syncAllClassesToSupabase(
-  userId: string,
-  classes: ClassItem[]
-): Promise<boolean> {
-  if (!isSupabaseConfigured || !userId) return false;
-
-  try {
-    const records = classes.map((cls) => ({
-      id: cls.id,
-      user_id: userId,
-      grade: cls.grade,
-      section: cls.section,
-      exams: cls.exams,
-      updated_at: new Date().toISOString(),
-    }));
-
-    if (records.length === 0) {
-      return true;
-    }
-
-    const { error } = await supabase.from('user_classes').upsert(records);
-    if (error) {
-      console.error('Error batch saving classes:', error);
-      return false;
-    }
-    return true;
-  } catch (err) {
-    console.error('Exception in syncAllClassesToSupabase:', err);
-    return false;
-  }
-}
-
-/**
- * Deletes a class from Supabase
- */
-export async function deleteClassFromSupabase(userId: string, classId: string): Promise<boolean> {
-  if (!isSupabaseConfigured || !userId) return false;
-
-  try {
-    const { error } = await supabase
-      .from('user_classes')
-      .delete()
-      .eq('id', classId)
-      .eq('user_id', userId);
-
-    if (error) {
-      console.error('Error deleting class from Supabase:', error);
-      return false;
-    }
-    return true;
-  } catch (err) {
-    console.error('Exception in deleteClassFromSupabase:', err);
+    console.error('Exception in deleteClass:', err);
     return false;
   }
 }

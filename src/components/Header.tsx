@@ -127,14 +127,16 @@ export const Header: React.FC<HeaderProps> = ({
           </div>
         )}
 
-        <button
-          onClick={onResetDemo}
-          title="Reset to default demo data"
-          className="inline-flex items-center gap-1.5 text-xs font-mono-tag text-[#5B6B78] hover:text-[#16232E] bg-white border border-[#DCE2DE] hover:border-[#16232E] rounded-md px-2.5 py-1.5 transition-all cursor-pointer shadow-xs"
-        >
-          <RotateCcw className="w-3.5 h-3.5" />
-          Reset Demo
-        </button>
+        {!user && (
+          <button
+            onClick={onResetDemo}
+            title="Reset to default demo data"
+            className="inline-flex items-center gap-1.5 text-xs font-mono-tag text-[#5B6B78] hover:text-[#16232E] bg-white border border-[#DCE2DE] hover:border-[#16232E] rounded-md px-2.5 py-1.5 transition-all cursor-pointer shadow-xs"
+          >
+            <RotateCcw className="w-3.5 h-3.5" />
+            Reset Demo
+          </button>
+        )}
       </div>
     </header>
   );

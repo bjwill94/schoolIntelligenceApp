@@ -13,7 +13,7 @@ A marksheet insight tool for teachers. Teachers enter or import exam marks for a
 | Charts | Chart.js (bar charts only) |
 | Icons | lucide-react |
 | Spreadsheet parsing | SheetJS (`xlsx`) |
-| Auth + cloud DB | Supabase (email/password auth, one `user_classes` table) |
+| Auth + cloud DB | Supabase (email/password sign-in for admin-created staff accounts, one shared `classes` table) |
 | Offline storage | Browser `localStorage` |
 
 Run it with `npm install`, then `npm run dev` (port 5173). Type-check with `npm run lint`.
@@ -65,8 +65,8 @@ Each exam keeps its own copy of the roster and subjects. When you create a new e
 ### Screens and Components (`src/components/`)
 | Component | What it does |
 |---|---|
-| `LoginScreen` | Full-page sign in or sign up through Supabase, plus a "Continue in Guest Mode" button. |
-| `Header` | Shows the breadcrumb and page title, the signed-in user and sync status ("Saving…", "Cloud Synced", "Sync error") or a "Guest / Local Mode" badge, and a **Reset Demo** button. Hidden on the login screen. |
+| `LoginScreen` | Full-page Supabase sign-in (no sign-up; staff accounts are invited by an admin), plus a "Continue in Guest Mode" button. |
+| `Header` | Shows the breadcrumb and page title, the signed-in user and sync status ("Saving…", "Cloud Synced", "Sync error") or a "Guest / Local Mode" badge. Guests also get a **Reset Demo** button. Hidden on the login screen. |
 | `HomeScreen` | Grid of class cards (grade and section, student count, exam count, latest exam status). Has an inline "Add Class" form. |
 | `ClassScreen` | Lists the class's exams, newest first, each with a status pill (Not started, In progress, Completed). Buttons: **Enter Marks**, **View Insights**, delete exam, **New Exam**, **Import Exam from Sheet**, and delete class. |
 | `ExamScreen` | Exam header fields (name, date, class attendance %) and tab switching between the two tabs below. |
@@ -79,7 +79,6 @@ Each exam keeps its own copy of the roster and subjects. When you create a new e
 | `report/PrintReport` | The A4 report document (header, summary, distribution, subjects at a glance, breakdown table, needs attention, landscape class grid, sign-off lines). |
 | `SubjectMultiSelect` | Checkbox dropdown (an "All subjects" option plus a count per subject) used to filter the Needs attention list. |
 | `ExcelImportModal` | Upload by drag-and-drop or file picker (`.xlsx`, `.xls`, `.csv`, `.json`). Previews the detected subjects and first 5 students, and lets you rename subjects, change max marks, or drop a subject before confirming. |
-| `AuthModal` | Popup version of the login form. Currently **unused**: nothing ever opens it, and the header sends users to `LoginScreen` instead. |
 | `StudentProfilePanel` | **Empty file.** Placeholder for a future per-student view. |
 
 ### Logic
@@ -88,9 +87,9 @@ Each exam keeps its own copy of the roster and subjects. When you create a new e
 | `src/utils/stats.ts` | **The insights engine.** Pure functions: `computeInsights`, `subjectAverage`, `studentTotals`, `studentPct`, `bandForMark`, `overallBand`, `examStatus`, and the mark checks (`isAbsent`, `isNA`, `isNumericMark`). Also holds the band colours and labels. |
 | `src/utils/excelParser.ts` | Turns a spreadsheet into subjects and students. See section 6. |
 | `src/data/seed.ts` | Demo data (Grade 10A, 10B, 6A), localStorage load and save (key `school_register_classes_v1`), and `generateId`. |
-| `src/services/dbService.ts` | Supabase CRUD: `loadClassesForUser`, `syncClassToSupabase`, `syncAllClassesToSupabase`, `deleteClassFromSupabase`. |
+| `src/services/dbService.ts` | Supabase CRUD on the shared classes: `loadAllClasses`, `fetchClass`, `insertClass`, `updateClass` (only succeeds if the row's `updated_at` still matches the version last loaded), `deleteClass`. |
 | `src/lib/supabase.ts` | Creates the Supabase client from env vars. Exports `isSupabaseConfigured`; when that is false, the app runs local-only. |
-| `supabase_schema.sql` | Creates the `user_classes` table and its row-level security policies. Run it once in the Supabase SQL editor. |
+| `supabase_schema.sql` | Fresh install: drops any old tables, then creates the `classes` table, a trigger that stamps `created_by`, `updated_by` and `updated_at`, and the row-level security policies (any signed-in staff member can read and edit every class). Running it again **wipes all data**. |
 
 ---
 
@@ -167,11 +166,20 @@ Only **valid students** are counted: students with at least one mark entered (a 
 | Mode | Where data lives |
 |---|---|
 | Guest (not signed in, or Supabase not configured) | `localStorage` only. The first launch loads the demo seed data. |
-| Signed in | Loads from the Supabase `user_classes` table (one row per class, with all exams stored as JSONB). Every change is saved to Supabase and also mirrored to `localStorage`. |
+| Signed in | Loads **every class in the school** from the Supabase `classes` table (one row per class, with all exams stored as JSONB). Changes are saved to Supabase only; nothing is written to `localStorage`. |
 
-- Row-level security means each teacher can only read and write their own rows.
-- A brand-new signed-in user starts with **no classes** (no demo data).
-- **Reset Demo** replaces all classes with the seed data. For a signed-in user, this is also synced to the cloud.
+**Access model (MVP):** all teachers and the principal have the same rights. Any signed-in staff member can see, create, edit and delete any class. Anonymous visitors get nothing (row-level security is limited to the `authenticated` role). `created_by` and `updated_by` (set by a database trigger, not the browser) record who created and last edited a class; neither restricts access.
+
+**Accounts:** there is no sign-up in the app. In the Supabase dashboard, turn off *Authentication → Sign In / Providers → Allow new users to sign up*, then add staff with *Authentication → Users → Add user → Create new user* (email, password, **Auto Confirm User** ticked) and share each password with its owner. (The app has no "set password" page, so *Invite user* links won't work yet.) Without that setting, anyone could create an account through the API and read all the data.
+
+**Saving when several staff edit at once** (`App.tsx`):
+- Edits are debounced (600 ms) **per class**. Saves for a class run one at a time, and only the class that changed is sent.
+- Each class row's `updated_at` is a version token. A save only succeeds if the row hasn't changed since this browser last loaded or saved it.
+- If someone else saved first, the app loads their version, shows an amber notice, and drops the local change that clashed (the teacher re-enters it). If the class was deleted by someone else, it disappears with a notice.
+- All classes are reloaded when the tab regains focus, unless a save is still pending.
+
+- **Reset Demo** is available to guests only.
+- Signing out (or the session expiring) clears the shared data from memory and goes back to the guest data on this device.
 
 **Environment variables** (`.env`, see `.env.example`):
 ```
@@ -184,11 +192,12 @@ VITE_SUPABASE_ANON_KEY=...
 
 ## 8. Known Gaps and Cleanup Candidates
 
-- `StudentProfilePanel.tsx` is empty, and `AuthModal.tsx` is never opened (dead code).
+- `StudentProfilePanel.tsx` is empty.
 - `@google/genai`, `express`, and `dotenv` are installed but not used, so there is no AI-generated insight yet.
-- **Double writes to Supabase**: each handler syncs right away, *and* an effect in `App.tsx` also upserts **all** classes 600 ms later.
-- **Every edit sends the whole class**, including all its exams, to Supabase. This is fine at small scale but heavy for large classes.
-- **Shared-computer privacy issue**: signed-in data is mirrored to `localStorage` and not cleared on sign-out, so the next guest on the same browser can see the previous teacher's classes.
+- **Every edit sends the whole class**, including all its exams, to Supabase. This is fine at small scale but heavy for large classes. Because the version check is per class, two teachers editing *different exams of the same class* at the same moment will also clash; splitting exams into their own table would fix that.
+- No live updates: other staff members' changes appear when the tab regains focus, not instantly (Supabase Realtime could add this).
+- No roles yet: the principal has the same rights as teachers. A `role` column on a staff table would be the next step.
+- Browsers used before the shared model may still hold a teacher's classes in `localStorage` (key `school_register_classes_v1`), which guest mode would show. Clear site data on shared computers once.
 - The Excel import inside **Enter Marks** overwrites the whole exam without asking for confirmation.
 - Pass mark on import is fixed at 33%. It can be changed afterwards in the Enter Marks table header.
 - Attendance is one number per exam that the teacher types in, not tracked per student.

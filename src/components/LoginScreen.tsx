@@ -1,9 +1,9 @@
 import React, { useState } from 'react';
-import { supabase, isSupabaseConfigured, supabaseUrl } from '../lib/supabase';
-import { Mail, Lock, ArrowRight, ShieldCheck, Database, GraduationCap, AlertCircle, CheckCircle2, UserCheck } from 'lucide-react';
+import { supabase, isSupabaseConfigured } from '../lib/supabase';
+import { Mail, Lock, ArrowRight, Database, GraduationCap, AlertCircle, CheckCircle2, UserCheck } from 'lucide-react';
 
 interface LoginScreenProps {
-  onLoginSuccess: (user: any) => void;
+  onLoginSuccess: () => void;
   onContinueGuest: () => void;
 }
 
@@ -11,7 +11,6 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
   onLoginSuccess,
   onContinueGuest,
 }) => {
-  const [mode, setMode] = useState<'signin' | 'signup'>('signin');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
@@ -33,46 +32,19 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
       return;
     }
 
-    if (password.length < 6) {
-      setErrorMsg('Password must be at least 6 characters long.');
-      return;
-    }
-
     setLoading(true);
 
     try {
-      if (mode === 'signup') {
-        const { data, error } = await supabase.auth.signUp({
-          email: email.trim(),
-          password,
-        });
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email: email.trim(),
+        password,
+      });
 
-        if (error) {
-          setErrorMsg(error.message);
-        } else if (data.session?.user) {
-          setSuccessMsg('Account created successfully! Logging you in...');
-          setTimeout(() => {
-            onLoginSuccess(data.session?.user);
-          }, 600);
-        } else {
-          setSuccessMsg(
-            'Account registration submitted! If confirmation is required, check your email inbox to verify before signing in.'
-          );
-        }
-      } else {
-        const { data, error } = await supabase.auth.signInWithPassword({
-          email: email.trim(),
-          password,
-        });
-
-        if (error) {
-          setErrorMsg(error.message);
-        } else if (data.user) {
-          setSuccessMsg('Signed in successfully! Loading your classes...');
-          setTimeout(() => {
-            onLoginSuccess(data.user);
-          }, 400);
-        }
+      if (error) {
+        setErrorMsg(error.message);
+      } else if (data.user) {
+        setSuccessMsg('Signed in successfully! Loading school classes...');
+        setTimeout(onLoginSuccess, 400);
       }
     } catch (err: any) {
       setErrorMsg(err.message || 'Connection error. Please try again.');
@@ -107,42 +79,13 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
           </div>
         </div>
 
-        {/* Tab switch */}
-        <div className="flex border-b border-[#E8ECE9] bg-[#FAFBF9]">
-          <button
-            type="button"
-            onClick={() => {
-              setMode('signin');
-              setErrorMsg(null);
-              setSuccessMsg(null);
-            }}
-            className={`flex-1 py-3 text-xs font-semibold text-center border-b-2 transition-colors cursor-pointer ${
-              mode === 'signin'
-                ? 'border-[#B9852A] text-[#16232E] bg-white'
-                : 'border-transparent text-[#788896] hover:text-[#16232E]'
-            }`}
-          >
-            Sign In
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              setMode('signup');
-              setErrorMsg(null);
-              setSuccessMsg(null);
-            }}
-            className={`flex-1 py-3 text-xs font-semibold text-center border-b-2 transition-colors cursor-pointer ${
-              mode === 'signup'
-                ? 'border-[#B9852A] text-[#16232E] bg-white'
-                : 'border-transparent text-[#788896] hover:text-[#16232E]'
-            }`}
-          >
-            Create Teacher Account
-          </button>
-        </div>
-
         {/* Form Body */}
         <form onSubmit={handleSubmit} className="p-6 sm:p-7 space-y-4">
+          <p className="text-xs text-[#5B6B78] leading-relaxed">
+            Staff sign in to see and edit every class in the school. Accounts are created by the
+            school admin. Ask them for one if you can't sign in.
+          </p>
+
           {errorMsg && (
             <div className="p-3 bg-red-50 border border-red-200 text-red-700 text-xs rounded-lg flex items-start gap-2 animate-in fade-in">
               <AlertCircle className="w-4 h-4 text-red-600 shrink-0 mt-0.5" />
@@ -189,11 +132,6 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
                 className="w-full pl-9 pr-3 py-2.5 text-sm border border-[#DCE2DE] rounded-lg focus:outline-none focus:border-[#16232E] focus:ring-1 focus:ring-[#16232E] transition-all bg-[#FAFBF9] focus:bg-white"
               />
             </div>
-            {mode === 'signup' && (
-              <span className="text-[11px] text-[#788896] mt-1 block">
-                At least 6 characters
-              </span>
-            )}
           </div>
 
           <button
@@ -203,14 +141,9 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
           >
             {loading ? (
               <span className="animate-pulse">Connecting to Database...</span>
-            ) : mode === 'signin' ? (
-              <>
-                <span>Sign In &amp; Sync Records</span>
-                <ArrowRight className="w-4 h-4 text-[#B9852A]" />
-              </>
             ) : (
               <>
-                <span>Register &amp; Create Database</span>
+                <span>Sign In &amp; Sync Records</span>
                 <ArrowRight className="w-4 h-4 text-[#B9852A]" />
               </>
             )}
